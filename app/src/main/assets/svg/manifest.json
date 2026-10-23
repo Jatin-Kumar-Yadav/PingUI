@@ -1,0 +1,166 @@
+{
+  "source": "src/App.tsx",
+  "icons": 30,
+  "charts": 2,
+  "defaultStroke": "#35453f",
+  "assets": [
+    {
+      "name": "wallet",
+      "asset": "svg/icons/wallet.svg",
+      "drawable": "ic_pingpaisa_wallet"
+    },
+    {
+      "name": "sparkle",
+      "asset": "svg/icons/sparkle.svg",
+      "drawable": "ic_pingpaisa_sparkle"
+    },
+    {
+      "name": "shield",
+      "asset": "svg/icons/shield.svg",
+      "drawable": "ic_pingpaisa_shield"
+    },
+    {
+      "name": "scan",
+      "asset": "svg/icons/scan.svg",
+      "drawable": "ic_pingpaisa_scan"
+    },
+    {
+      "name": "home",
+      "asset": "svg/icons/home.svg",
+      "drawable": "ic_pingpaisa_home"
+    },
+    {
+      "name": "chart",
+      "asset": "svg/icons/chart.svg",
+      "drawable": "ic_pingpaisa_chart"
+    },
+    {
+      "name": "user",
+      "asset": "svg/icons/user.svg",
+      "drawable": "ic_pingpaisa_user"
+    },
+    {
+      "name": "food",
+      "asset": "svg/icons/food.svg",
+      "drawable": "ic_pingpaisa_food"
+    },
+    {
+      "name": "car",
+      "asset": "svg/icons/car.svg",
+      "drawable": "ic_pingpaisa_car"
+    },
+    {
+      "name": "bag",
+      "asset": "svg/icons/bag.svg",
+      "drawable": "ic_pingpaisa_bag"
+    },
+    {
+      "name": "bill",
+      "asset": "svg/icons/bill.svg",
+      "drawable": "ic_pingpaisa_bill"
+    },
+    {
+      "name": "coffee",
+      "asset": "svg/icons/coffee.svg",
+      "drawable": "ic_pingpaisa_coffee"
+    },
+    {
+      "name": "arrow",
+      "asset": "svg/icons/arrow.svg",
+      "drawable": "ic_pingpaisa_arrow"
+    },
+    {
+      "name": "edit",
+      "asset": "svg/icons/edit.svg",
+      "drawable": "ic_pingpaisa_edit"
+    },
+    {
+      "name": "calendar",
+      "asset": "svg/icons/calendar.svg",
+      "drawable": "ic_pingpaisa_calendar"
+    },
+    {
+      "name": "repeat",
+      "asset": "svg/icons/repeat.svg",
+      "drawable": "ic_pingpaisa_repeat"
+    },
+    {
+      "name": "camera",
+      "asset": "svg/icons/camera.svg",
+      "drawable": "ic_pingpaisa_camera"
+    },
+    {
+      "name": "chat",
+      "asset": "svg/icons/chat.svg",
+      "drawable": "ic_pingpaisa_chat"
+    },
+    {
+      "name": "lock",
+      "asset": "svg/icons/lock.svg",
+      "drawable": "ic_pingpaisa_lock"
+    },
+    {
+      "name": "download",
+      "asset": "svg/icons/download.svg",
+      "drawable": "ic_pingpaisa_download"
+    },
+    {
+      "name": "chevron",
+      "asset": "svg/icons/chevron.svg",
+      "drawable": "ic_pingpaisa_chevron"
+    },
+    {
+      "name": "check",
+      "asset": "svg/icons/check.svg",
+      "drawable": "ic_pingpaisa_check"
+    },
+    {
+      "name": "plus",
+      "asset": "svg/icons/plus.svg",
+      "drawable": "ic_pingpaisa_plus"
+    },
+    {
+      "name": "eye",
+      "asset": "svg/icons/eye.svg",
+      "drawable": "ic_pingpaisa_eye"
+    },
+    {
+      "name": "finger",
+      "asset": "svg/icons/finger.svg",
+      "drawable": "ic_pingpaisa_finger"
+    },
+    {
+      "name": "brain",
+      "asset": "svg/icons/brain.svg",
+      "drawable": "ic_pingpaisa_brain"
+    },
+    {
+      "name": "target",
+      "asset": "svg/icons/target.svg",
+      "drawable": "ic_pingpaisa_target"
+    },
+    {
+      "name": "menu",
+      "asset": "svg/icons/menu.svg",
+      "drawable": "ic_pingpaisa_menu"
+    },
+    {
+      "name": "close",
+      "asset": "svg/icons/close.svg",
+      "drawable": "ic_pingpaisa_close"
+    },
+    {
+      "name": "back",
+      "asset": "svg/icons/back.svg",
+      "drawable": "ic_pingpaisa_back"
+    },
+    {
+      "name": "spend_trajectory",
+      "asset": "svg/charts/spend_trajectory.svg"
+    },
+    {
+      "name": "health_gauge",
+      "asset": "svg/charts/health_gauge.svg"
+    }
+  ]
+}

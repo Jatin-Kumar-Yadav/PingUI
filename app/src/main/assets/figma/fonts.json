@@ -1,0 +1,85 @@
+{
+  "fonts": [
+    {
+      "family": "Manrope",
+      "style": "Bold",
+      "font_style": "normal",
+      "font_weight": 700,
+      "format": "woff2",
+      "source": "Figma font resolver"
+    },
+    {
+      "family": "Manrope",
+      "style": "ExtraBold",
+      "font_style": "normal",
+      "font_weight": 800,
+      "format": "woff2",
+      "source": "Figma font resolver"
+    },
+    {
+      "family": "Manrope",
+      "style": "Regular",
+      "font_style": "normal",
+      "font_weight": 400,
+      "format": "woff2",
+      "source": "Figma font resolver"
+    },
+    {
+      "family": "Manrope",
+      "style": "SemiBold",
+      "font_style": "normal",
+      "font_weight": 600,
+      "format": "woff2",
+      "source": "Figma font resolver"
+    },
+    {
+      "family": "Noto Sans Math",
+      "style": "Regular",
+      "font_style": "normal",
+      "font_weight": 400,
+      "format": "woff2",
+      "source": "Figma font resolver"
+    },
+    {
+      "family": "Noto Sans Symbols2",
+      "style": "Regular",
+      "font_style": "normal",
+      "font_weight": 400,
+      "format": "woff2",
+      "source": "Figma font resolver"
+    },
+    {
+      "family": "Noto Sans Symbols",
+      "style": "Black",
+      "font_style": "normal",
+      "font_weight": 900,
+      "format": "woff2",
+      "source": "Figma font resolver"
+    },
+    {
+      "family": "Noto Sans Symbols",
+      "style": "Regular",
+      "font_style": "normal",
+      "font_weight": 400,
+      "format": "woff2",
+      "source": "Figma font resolver"
+    },
+    {
+      "family": "Noto Sans",
+      "style": "Black",
+      "font_style": "normal",
+      "font_weight": 900,
+      "format": "woff2",
+      "source": "Figma font resolver"
+    },
+    {
+      "family": "Noto Sans",
+      "style": "Regular",
+      "font_style": "normal",
+      "font_weight": 400,
+      "format": "woff2",
+      "source": "Figma font resolver"
+    }
+  ],
+  "blocked": []
+}

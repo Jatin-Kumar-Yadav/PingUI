@@ -1,0 +1,23 @@
+<?xml version='1.0' encoding='utf-8'?>
+<testsuite name="com.pingpaisa.app.AllScreensTest" tests="20" skipped="0" failures="0" errors="0" timestamp="2026-10-22T14:53:08" time="23.0">
+  <testcase name="render[Onboarding-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="16.084" />
+  <testcase name="render[Lock-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.425" />
+  <testcase name="render[Home-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.581" />
+  <testcase name="render[Transactions-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.446" />
+  <testcase name="render[Detail-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.548" />
+  <testcase name="render[Entry-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.345" />
+  <testcase name="render[Budgets-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.335" />
+  <testcase name="render[Flow-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.292" />
+  <testcase name="render[Recurring-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.251" />
+  <testcase name="render[Loan-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.443" />
+  <testcase name="render[Forecast-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.664" />
+  <testcase name="render[Heatmap-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.376" />
+  <testcase name="render[Scan-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.393" />
+  <testcase name="render[Chat-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.239" />
+  <testcase name="render[Health-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.278" />
+  <testcase name="render[Settings-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.376" />
+  <testcase name="render[Style-440x868-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.287" />
+  <testcase name="render[Home-320x480-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.229" />
+  <testcase name="render[Chat-844x302-font1]" classname="com.pingpaisa.app.AllScreensTest" time="0.186" />
+  <testcase name="render[Detail-360x712-font1.5]" classname="com.pingpaisa.app.AllScreensTest" time="0.211" />
+</testsuite>
