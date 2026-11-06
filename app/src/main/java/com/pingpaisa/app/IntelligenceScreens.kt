@@ -35,15 +35,21 @@ import javax.xml.transform.TransformerFactory
 import javax.xml.transform.dom.DOMSource
 import javax.xml.transform.stream.StreamResult
 
+/**
+ * Draws a bundled SVG chart. [adjust] may change the in-memory copy before it is drawn (the
+ * health gauge uses it to set the fill and needle from the real score); [key] must change
+ * whenever the adjustment does. The bundled file itself is never modified.
+ */
 @Composable
-internal fun SvgArtwork(asset: String, modifier: Modifier) {
+internal fun SvgArtwork(asset: String, modifier: Modifier, key: Any? = null, adjust: (org.w3c.dom.Document) -> Unit = {}) {
     val context = LocalContext.current
-    val svg = remember(asset) {
+    val svg = remember(asset, key) {
         // AndroidSVG 1.4 parses pathLength but does not normalize dash lengths.
         // Adapt the renderer's input, never the original bundled artwork or geometry.
         val document = context.assets.open("svg/charts/$asset.svg").use {
             DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(it)
         }
+        adjust(document)
         val paths = document.getElementsByTagName("path")
         for (index in 0 until paths.length) {
             val element = paths.item(index) as org.w3c.dom.Element
@@ -363,8 +369,24 @@ internal fun HeatmapScreen(menu: () -> Unit, back: () -> Unit) {
     }
 }
 
+/**
+ * Sets the gauge artwork from a 0..100 score: the coloured arc's length and the needle's angle.
+ * Geometry is the SVG's own: arc centre (130,130), needle length ≈ 86 units.
+ */
+private fun gaugeFor(score: Int): (org.w3c.dom.Document) -> Unit = { doc ->
+    val fraction = score.coerceIn(0, 100) / 100.0
+    val paths = doc.getElementsByTagName("path")
+    if (paths.length >= 2) (paths.item(1) as org.w3c.dom.Element).setAttribute("stroke-dasharray", "${score.coerceIn(0, 100)} 100")
+    (doc.getElementsByTagName("line").item(0) as? org.w3c.dom.Element)?.let { needle ->
+        val angle = Math.PI * (1 - fraction)
+        needle.setAttribute("x2", "%.1f".format(java.util.Locale.US, 130 + 86.3 * kotlin.math.cos(angle)))
+        needle.setAttribute("y2", "%.1f".format(java.util.Locale.US, 130 - 86.3 * kotlin.math.sin(angle)))
+    }
+}
+
+/** [ui] is the real score (see HealthUi.from); the default is the design's sample for previews and screenshot tests. */
 @Composable
-internal fun HealthScreen(menu: () -> Unit, back: () -> Unit) {
+internal fun HealthScreen(menu: () -> Unit, back: () -> Unit, ui: HealthUi = HealthUi.Sample) {
     ScreenScroll(padded = false) {
         Column(verticalArrangement = Arrangement.spacedBy((-16).dp)) {
             Column(Modifier.fillMaxWidth().heightIn(min = 358.dp).claySurface(
@@ -375,34 +397,41 @@ internal fun HealthScreen(menu: () -> Unit, back: () -> Unit) {
                     val path = Path().apply { addPath(outline.path,Offset(size.width - 113.dp.toPx(),22.dp.toPx())) }
                     onDrawBehind { drawPath(path,Clay.Lavender.copy(alpha = .42f)) }
                 }.padding(start = 20.dp, end = 20.dp, top = 10.dp)) {
-                NativeHeader("Financial health", "JUNE 2025", menu, back)
+                NativeHeader("Financial health", ui.eyebrow, menu, back)
                 Spacer(Modifier.height(18.dp))
                 Box(Modifier.fillMaxWidth().height(216.dp)) {
-                    SvgArtwork("health_gauge", Modifier.align(Alignment.TopCenter).widthIn(max = 285.dp).fillMaxWidth().height(164.dp))
+                    val gaugeModifier = Modifier.align(Alignment.TopCenter).widthIn(max = 285.dp).fillMaxWidth().height(164.dp)
+                    if (ui.isSample) SvgArtwork("health_gauge", gaugeModifier)
+                    else SvgArtwork("health_gauge", gaugeModifier, key = ui.score, adjust = gaugeFor(ui.score))
                     Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 17.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        NativeText("782", 43.sp, weight = FontWeight.Bold, tracking = (-3.01).sp)
-                        NativeText("EXCELLENT", 7.sp, Color(0xFF608173), FontWeight.ExtraBold, tracking = 1.05.sp)
+                        NativeText(ui.scoreText, 43.sp, weight = FontWeight.Bold, tracking = (-3.01).sp)
+                        NativeText(ui.riskLabel, 7.sp, Color(0xFF608173), FontWeight.ExtraBold, tracking = 1.05.sp)
                     }
                 }
-                NativeText("Up 24 points since May", 8.sp, Color(0xFF6B7C74), modifier = Modifier.align(Alignment.CenterHorizontally))
+                NativeText(ui.change, 8.sp, Color(0xFF6B7C74), modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 4.dp),
+                    align = androidx.compose.ui.text.style.TextAlign.Center)
             }
             Column(Modifier.padding(horizontal = 20.dp)) {
                 Column(Modifier.fillMaxWidth().claySurface(RoundedCornerShape(26.dp), shadow = ClayShadow.Raised).padding(17.dp)) {
                     NativeText("What shapes your score", 12.sp, modifier = Modifier.padding(bottom = 13.dp))
-                    listOf("Savings rate" to 88,"Budget control" to 74,"Bill consistency" to 94,"Debt health" to 68).forEachIndexed { i, (label, value) ->
+                    ui.factors.forEachIndexed { i, factor ->
                         Row(Modifier.fillMaxWidth().padding(bottom = 5.dp)) {
-                            NativeText(label, 8.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f)); NativeText("$value/100", 8.sp, Color(0xFF999999))
+                            NativeText(factor.label, 8.sp, weight = FontWeight.Bold, modifier = Modifier.weight(1f)); NativeText("${factor.value}/100", 8.sp, Color(0xFF999999))
                         }
-                        MiniProgress(value / 100f, listOf(Color(0xFF8EAE88),Color(0xFFEDC093),Color(0xFFA89CCC),Color(0xFFE7AAA8))[i])
+                        MiniProgress(factor.value / 100f, listOf(Color(0xFF8EAE88),Color(0xFFEDC093),Color(0xFFA89CCC),Color(0xFFE7AAA8))[i % 4])
+                        if (factor.detail.isNotEmpty())
+                            NativeText(factor.detail, 7.sp, Color(0xFF8C918F), modifier = Modifier.padding(top = 4.dp))
                         Spacer(Modifier.height(11.dp))
                     }
                 }
                 Row(Modifier.padding(top = 12.dp).fillMaxWidth().background(Color(0xFFE7E2F3), RoundedCornerShape(21.dp)).padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     ClayBadge(R.drawable.ic_pingpaisa_sparkle, Tone.Lavender)
-                    Column { NativeText("AI RECOMMENDATION", 6.sp, tracking = .6.sp)
-                        NativeText("Reduce dining by ₹1,800 to cross an 800 score next month.", 8.sp, lineHeight = 11.6.sp, modifier = Modifier.padding(top = 3.dp)) }
+                    Column { NativeText(ui.insightLabel, 6.sp, tracking = .6.sp)
+                        NativeText(ui.insight, 8.sp, lineHeight = 11.6.sp, modifier = Modifier.padding(top = 3.dp)) }
                 }
+                if (ui.basis.isNotEmpty()) NativeText(ui.basis, 7.sp, Color(0xFF999999), lineHeight = 10.5.sp,
+                    modifier = Modifier.padding(top = 10.dp, start = 4.dp, end = 4.dp))
             }
         }
     }

@@ -50,13 +50,20 @@ object SpendingHistory {
     fun thisMonthSpend(transactions: List<Transaction>): Double =
         thisMonthTransactions(transactions).sumOf { it.amount }
 
+    /** Recurring types that are money spent and so lower the savings rate. SIPs are savings, not spending. */
+    private val OUTFLOW_TYPES = setOf("EMI", "Other")
+
     /**
      * Money that actually leaves the account this month:
-     * tracked spending + EMIs declared in the Recurring tab that are NOT
-     * already among this month's transactions. Bank EMI auto-debits usually
-     * don't arrive as UPI alerts, so without this they'd be invisible to the
-     * savings rate. If a transaction with the same name exists this month,
-     * the EMI is assumed to be already counted (avoids double counting).
+     * tracked spending + EMIs and "Other" recurring payments (rent, subscriptions,
+     * bills) declared in the Recurring tab that are NOT already among this month's
+     * transactions. Auto-debits usually don't arrive as UPI alerts, so without this
+     * they'd be invisible to the savings rate. If a transaction with the same name
+     * exists this month, the payment is assumed to be already counted (avoids
+     * double counting).
+     *
+     * Changed from the tracker, which counted only EMIs: "Other" payments are real
+     * spending too. SIPs stay out because they are investments.
      */
     fun monthlyOutflow(
         transactions: List<Transaction>,
@@ -65,10 +72,10 @@ object SpendingHistory {
         val thisMonth = thisMonthTransactions(transactions)
         val spend = thisMonth.sumOf { it.amount }
         val paidNames = thisMonth.map { it.recipient.trim().lowercase() }.toSet()
-        val untrackedEmi = recurringItems
-            .filter { it.type == "EMI" && it.name.trim().lowercase() !in paidNames }
+        val untrackedRecurring = recurringItems
+            .filter { it.type in OUTFLOW_TYPES && it.name.trim().lowercase() !in paidNames }
             .sumOf { it.amount }
-        return spend + untrackedEmi
+        return spend + untrackedRecurring
     }
 
     /** Up to the last 6 monthly totals, used for the consistency factor. */

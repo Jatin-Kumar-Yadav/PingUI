@@ -14,6 +14,9 @@ interface HealthScoreHistoryDao {
     @Insert
     suspend fun insert(entry: HealthScoreHistory)
 
+    @Query("SELECT * FROM health_score_history ORDER BY timestamp DESC LIMIT 1")
+    suspend fun latest(): HealthScoreHistory?
+
     @Query("SELECT * FROM health_score_history ORDER BY timestamp ASC")
     suspend fun getAll(): List<HealthScoreHistory>
 }

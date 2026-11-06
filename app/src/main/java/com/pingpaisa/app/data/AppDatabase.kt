@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.pingpaisa.app.healthscore.HealthScoreHistory
 import com.pingpaisa.app.healthscore.HealthScoreHistoryDao
 
@@ -14,8 +16,13 @@ import com.pingpaisa.app.healthscore.HealthScoreHistoryDao
  * recurring_items, health_score_history.
  * New tables: user_profile, budgets, savings_goals.
  *
- * Version starts at 1 because this is a new app (com.pingpaisa.app); the old
- * tracker's database lives in a different app and is not carried over.
+ * Version history (every change needs a Migration below, so upgrading the app
+ * never deletes anyone's account or transactions):
+ *  1  first PingPaisa schema
+ *  2  transactions.note (the note on the Transaction detail screen)
+ *
+ * The schema of each version is exported to app/schemas/ so future migrations
+ * can be checked against it.
  */
 @Database(
     entities = [
@@ -27,8 +34,8 @@ import com.pingpaisa.app.healthscore.HealthScoreHistoryDao
         Budget::class,
         SavingsGoal::class
     ],
-    version = 1,
-    exportSchema = false
+    version = 2,
+    exportSchema = true
 )
 abstract class AppDatabase : RoomDatabase() {
 
@@ -43,6 +50,13 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         private const val DATABASE_NAME = "pingpaisa_db"
 
+        /** v1 → v2: add the note column. Existing rows get an empty note; nothing else changes. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `note` TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
@@ -54,10 +68,11 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DATABASE_NAME
                 )
-                    // Development only, same as the old tracker: a schema change wipes the
-                    // data instead of crashing. Replace with real migrations before release,
-                    // otherwise users would lose their account and transactions on update.
-                    .fallbackToDestructiveMigration(true)
+                    .addMigrations(MIGRATION_1_2)
+                    // No silent wipe on upgrade any more: a missing migration now fails loudly during
+                    // development instead of deleting the user's account. Only installing an OLDER build
+                    // over a newer database (a developer action) still starts fresh.
+                    .fallbackToDestructiveMigrationOnDowngrade(true)
                     .build()
                     .also { INSTANCE = it }
             }

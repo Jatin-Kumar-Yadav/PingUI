@@ -19,8 +19,15 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE id = :id")
     fun observeById(id: Int): Flow<Transaction?>
 
-    @Query("UPDATE transactions SET category = :category WHERE recipient = :recipient")
+    /**
+     * Same as the tracker, plus the sub-category is reset: the old one (e.g. "Cafe & Coffee")
+     * would be wrong under a category the user picked themselves.
+     */
+    @Query("UPDATE transactions SET category = :category, subcategory = 'Miscellaneous' WHERE recipient = :recipient")
     suspend fun updateCategoryForRecipient(recipient: String, category: String)
+
+    @Query("UPDATE transactions SET note = :note WHERE id = :id")
+    suspend fun updateNote(id: Int, note: String)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insert(transaction: Transaction)

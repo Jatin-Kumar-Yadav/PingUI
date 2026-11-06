@@ -59,6 +59,8 @@ class ExpenseRepository(private val db: AppDatabase) {
 
     // ------------------------------------------------------------ transactions
 
+    suspend fun updateNote(id: Int, note: String) = transactions.updateNote(id, note.trim())
+
     /** A payment parsed from a bank SMS notification. Duplicates (same UPI ref) are ignored. */
     suspend fun saveParsedPayment(parsed: Transaction): Transaction {
         val result = categorize(parsed.recipient)
@@ -136,6 +138,8 @@ class ExpenseRepository(private val db: AppDatabase) {
     /** Only real dashboard scores are recorded, never loan-simulator "what if" scores. */
     suspend fun recordScore(score: Int, riskLevel: String) =
         scoreHistory.insert(HealthScoreHistory(score = score, riskLevel = riskLevel))
+
+    suspend fun latestScore(): HealthScoreHistory? = scoreHistory.latest()
 
     // ----------------------------------------------------------------- profile
 

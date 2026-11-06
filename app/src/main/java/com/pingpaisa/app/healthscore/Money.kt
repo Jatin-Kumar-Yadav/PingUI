@@ -38,5 +38,8 @@ object Money {
         else -> "₹${Math.round(value)}"
     }
 
+    /** Like [compact] but keeps the sign: -5200 -> "−₹5.2K". Used for savings, which can be negative. */
+    fun compactSigned(value: Double): String = if (value < 0) "−" + compact(-value) else compact(value)
+
     private fun trimmed(x: Double): String = String.format(Locale.US, "%.1f", x).removeSuffix(".0")
 }

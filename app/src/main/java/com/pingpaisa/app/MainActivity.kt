@@ -4,6 +4,10 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.time.LocalDate
+import java.time.YearMonth
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import com.pingpaisa.app.data.Categorizer
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -206,19 +210,88 @@ internal fun NativeScreen(
     startFresh: (Screen) -> Unit = navigate
 ) {
     when (screen) {
-        Screen.Home -> HomeDashboard(navigate, menu)
-        Screen.Transactions -> TransactionsScreen(menu, navigate)
-        Screen.Detail -> DetailScreen(menu, back)
-        Screen.Entry -> EntryScreen(menu, back)
+        Screen.Home -> if (vm == null) HomeDashboard(navigate, menu) else {
+            val summary by vm.homeSummary.collectAsStateWithLifecycle()
+            val account by vm.account.collectAsStateWithLifecycle()
+            val health by vm.health.collectAsStateWithLifecycle()
+            val name = (account as? AccountState.Ready)?.profile?.name.orEmpty()
+            val risk = health?.result?.risk
+            val ui = remember(summary, name, risk) {
+                summary?.let { HomeUi.from(it, name, risk) }
+            }
+            // A blank moment while the first numbers are worked out, then the real screen.
+            if (ui == null) Box(Modifier.fillMaxSize())
+            else HomeDashboard(navigate, menu, ui) { id ->
+                if (id != null) vm.openTransaction(id)
+                navigate(Screen.Detail)
+            }
+        }
+        Screen.Transactions -> if (vm == null) TransactionsScreen(menu, navigate) else {
+            val all by vm.transactions.collectAsStateWithLifecycle()
+            // 0 = this month, -1 = last month, ... Never later than the current month.
+            var monthOffset by rememberSaveable { mutableIntStateOf(0) }
+            val ui = remember(all, monthOffset) {
+                TransactionsUi.from(all, YearMonth.now().plusMonths(monthOffset.toLong()), LocalDate.now())
+            }
+            TransactionsScreen(menu, navigate, ui, onMonth = { monthOffset = (monthOffset + it).coerceAtMost(0) }) { id ->
+                if (id != null) vm.openTransaction(id)
+                navigate(Screen.Detail)
+            }
+        }
+        Screen.Detail -> if (vm == null) DetailScreen(menu, back) else {
+            val id by vm.selectedTransactionId.collectAsStateWithLifecycle()
+            // Live: if the transaction changes (or is removed) the screen follows.
+            val source = remember(id) {
+                val chosen = id
+                if (chosen == null) flowOf(DetailLoad.Missing)
+                else vm.observeTransaction(chosen).map { t -> if (t == null) DetailLoad.Missing else DetailLoad.Found(t) }
+            }
+            val load by source.collectAsStateWithLifecycle(initialValue = DetailLoad.Loading)
+            val categories by vm.categoryChoices.collectAsStateWithLifecycle()
+            DetailScreen(menu, back, load, categories) { transaction, category, note ->
+                vm.saveDetail(transaction, category, note)
+            }
+        }
+        // Saves through the ViewModel; lists update by themselves (live database queries).
+        Screen.Entry -> EntryScreen(menu, back, onSave = vm?.let { model ->
+            { amount, name, isIncome, category ->
+                if (isIncome) model.addIncome(amount, name) else model.addExpense(amount, name, category)
+            }
+        })
         Screen.Budgets -> BudgetsScreen(menu, back)
         Screen.Flow -> FlowScreen(menu, back)
         Screen.Forecast -> ForecastScreen(menu, back)
         Screen.Heatmap -> HeatmapScreen(menu, back)
-        Screen.Recurring -> RecurringScreen(menu, back)
+        Screen.Recurring -> if (vm == null) RecurringScreen(menu, back) else {
+            val items by vm.recurringItems.collectAsStateWithLifecycle()
+            val detected by vm.detectedRecurring.collectAsStateWithLifecycle()
+            val all by vm.transactions.collectAsStateWithLifecycle()
+            val ui = remember(items, detected, all) { RecurringUi.from(items, detected, all, LocalDate.now()) }
+            RecurringScreen(menu, back, ui,
+                onAdd = { name, amount, day, type -> vm.addRecurring(name, amount, day, type) },
+                onDelete = { id -> items.firstOrNull { it.id == id }?.let(vm::deleteRecurring) })
+        }
         Screen.Scan -> ScanScreen(menu, back)
         Screen.Chat -> ChatScreen(menu, back, navigate)
-        Screen.Health -> HealthScreen(menu, back)
-        Screen.Loan -> LoanScreen(menu, back)
+        Screen.Health -> if (vm == null) HealthScreen(menu, back) else {
+            val health by vm.health.collectAsStateWithLifecycle()
+            val history by vm.scoreHistory.collectAsStateWithLifecycle()
+            val current = health
+            if (current == null) Box(Modifier.fillMaxSize())   // still loading
+            else {
+                val ui = remember(current, history) {
+                    HealthUi.from(current.result, current.insight, current.monthlyIncome, current.raw.expense, history, LocalDate.now())
+                }
+                // Real scores (never loan "what ifs") are saved so next month can say "Up 4 points".
+                LaunchedEffect(current.result.score) { vm.recordScoreIfNeeded(current.result.score, current.result.risk) }
+                HealthScreen(menu, back, ui)
+            }
+        }
+        Screen.Loan -> if (vm == null) LoanScreen(menu, back) else {
+            val health by vm.health.collectAsStateWithLifecycle()
+            val baseline = health?.raw
+            if (baseline == null) Box(Modifier.fillMaxSize()) else LoanScreen(menu, back, baseline)
+        }
         Screen.Settings -> SettingsScreen(menu, navigate)
         Screen.Onboarding -> OnboardingScreen(menu) { navigate(Screen.SignUp) }
         // First run: Onboarding → Sign up → Notification access → Home. Setup screens are

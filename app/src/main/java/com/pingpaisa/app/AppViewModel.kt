@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pingpaisa.app.data.Budget
+import com.pingpaisa.app.data.Categorizer
 import com.pingpaisa.app.data.DetectedRecurring
 import com.pingpaisa.app.data.ExpenseRepository
 import com.pingpaisa.app.data.MerchantOverride
@@ -21,6 +22,7 @@ import com.pingpaisa.app.healthscore.SpendingHistory
 import com.pingpaisa.app.security.PasswordHasher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -139,6 +141,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
         )
     }.flowOn(Dispatchers.Default).state(null)   // date parsing over all transactions: keep it off the UI thread
 
+    /** Numbers for the Home screen; null until the account and health score have loaded. */
+    val homeSummary: StateFlow<HomeSummary?> = combine(transactions, budgets, health) { all, budgetList, h ->
+        h?.let { HomeSummary.build(all, budgetList, it.monthlyIncome, it.raw.expense, LocalDate.now()) }
+    }.flowOn(Dispatchers.Default).state(null)
+
+    /** The transaction opened from a list, shown on the Detail screen. Memory only. */
+    private val _selectedTransactionId = MutableStateFlow<Int?>(null)
+    val selectedTransactionId: StateFlow<Int?> = _selectedTransactionId.asStateFlow()
+    fun openTransaction(id: Int) { _selectedTransactionId.value = id }
+
     // ----------------------------------------------------------------- actions
 
     private fun launch(block: suspend () -> Unit) {
@@ -151,6 +163,20 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun addIncome(amount: Double, from: String) = launch { repo.addManualIncome(amount, from) }
 
     fun recategorize(recipient: String, category: String) = launch { repo.recategorize(recipient, category) }
+
+    /**
+     * "Save changes" on the Detail screen. A new [category] is remembered for the merchant and
+     * applied to all its payments (tracker behaviour); the note belongs to this transaction only.
+     */
+    fun saveDetail(transaction: Transaction, category: String?, note: String) = launch {
+        if (category != null && category != transaction.category) repo.recategorize(transaction.recipient, category)
+        if (note.trim() != transaction.note) repo.updateNote(transaction.id, note)
+    }
+
+    /** Categories the user can pick: the dataset's, plus any custom ones already in use. */
+    val categoryChoices: StateFlow<List<String>> = combine(expenses, merchantOverrides) { list, overrides ->
+        pickableCategories(Categorizer.getAllCategories(), list.map { it.category } + overrides.map { it.category })
+    }.flowOn(Dispatchers.Default).state(emptyList())
 
     fun observeTransaction(id: Int): Flow<Transaction?> = repo.observeTransaction(id)
 
@@ -212,6 +238,15 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun recordScore(score: Int, risk: ScoreCalculator.RiskLevel) = launch { repo.recordScore(score, risk.name) }
+
+    /**
+     * Called when the Financial health screen shows a real score: saves a snapshot once a day,
+     * or again if the score changed. Loan-simulator "what if" scores are never recorded.
+     */
+    fun recordScoreIfNeeded(score: Int, risk: ScoreCalculator.RiskLevel) = launch {
+        if (HealthUi.shouldRecord(score, repo.latestScore(), LocalDate.now(), java.time.ZoneId.systemDefault()))
+            repo.recordScore(score, risk.name)
+    }
 
     companion object {
         /** Away from the app this long and the password is asked again. */

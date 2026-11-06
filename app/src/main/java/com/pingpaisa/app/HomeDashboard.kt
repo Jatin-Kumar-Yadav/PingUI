@@ -75,8 +75,16 @@ private val homeShortcuts = listOf(
     HomeShortcut("AI forecast", Screen.Forecast, R.drawable.ic_pingpaisa_sparkle, HomeTone.Lavender)
 )
 
+/**
+ * [ui] is the real data (see HomeUi.from); the default is the design's sample content, used by
+ * previews and the screenshot tests. [openTransaction] is called with the tapped row's id.
+ */
 @Composable
-internal fun HomeDashboard(navigate: (Screen) -> Unit, openDrawer: () -> Unit) {
+internal fun HomeDashboard(
+    navigate: (Screen) -> Unit, openDrawer: () -> Unit,
+    ui: HomeUi = HomeUi.Sample,
+    openTransaction: (Int?) -> Unit = { navigate(Screen.Detail) }
+) {
     // The shell has already consumed device status-bar insets.
     val topInset = 0.dp
     val scroll = rememberScrollState()
@@ -86,7 +94,7 @@ internal fun HomeDashboard(navigate: (Screen) -> Unit, openDrawer: () -> Unit) {
     PinnedHeaderHost(Modifier.fillMaxSize(), scrollOffset = { 0 }) {
         val heroHeight = 154.dp
         // The hero stays fixed behind the page; its greeting fades as the card slides over it.
-        HomeHero(heroHeight, topInset, openDrawer,
+        HomeHero(ui, heroHeight, topInset, openDrawer,
             modifier = Modifier.onSizeChanged { heroPx = it.height }.graphicsLayer {
                 // Once the card's bottom edge passes the hero's bottom edge, the hero
                 // moves up with the page and quickly fades out over a short distance.
@@ -101,22 +109,20 @@ internal fun HomeDashboard(navigate: (Screen) -> Unit, openDrawer: () -> Unit) {
             Modifier.fillMaxSize().verticalScroll(scroll).padding(bottom = 74.dp)
         ) {
             Spacer(Modifier.height((with(density) { heroPx.toDp() } - 18.dp).coerceAtLeast(0.dp)))
-            MonthCard(Modifier.riseIn(80, 24f).padding(horizontal = Clay.Gutter).onSizeChanged { cardPx = it.height })
+            MonthCard(ui, Modifier.riseIn(80, 24f).padding(horizontal = Clay.Gutter).onSizeChanged { cardPx = it.height })
             Column(Modifier.fillMaxWidth().riseIn(200, 20f).padding(horizontal = Clay.Gutter)) {
                 HomeSection("Categories", "See all") { navigate(Screen.Transactions) }
-                HomeCategories { navigate(Screen.Transactions) }
+                HomeCategories(ui.categories) { navigate(Screen.Transactions) }
                 HomeSection("Money tools", "Explore", openDrawer)
                 HomeTools(navigate)
                 HomeSection("Recent activity", "View all") { navigate(Screen.Transactions) }
-                Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    HomeTransaction(
-                        "Third Wave Coffee", "Food • Today, 9:42 AM", "−₹320",
-                        R.drawable.ic_pingpaisa_coffee, HomeTone.Peach
-                    ) { navigate(Screen.Detail) }
-                    HomeTransaction(
-                        "Uber India", "Travel • Yesterday", "−₹486",
-                        R.drawable.ic_pingpaisa_car, HomeTone.Sage
-                    ) { navigate(Screen.Detail) }
+                if (ui.isEmpty) HomeEmptyActivity { navigate(Screen.Entry) }
+                else Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    ui.recent.forEach { row ->
+                        HomeTransaction(row.name, row.note, row.amount, row.icon, HomeTone.valueOf(row.tone.name)) {
+                            openTransaction(row.id)
+                        }
+                    }
                 }
             }
         }
@@ -125,7 +131,7 @@ internal fun HomeDashboard(navigate: (Screen) -> Unit, openDrawer: () -> Unit) {
 
 @Composable
 private fun HomeHero(
-    height: Dp, topInset: Dp, openDrawer: () -> Unit, modifier: Modifier = Modifier,
+    ui: HomeUi, height: Dp, topInset: Dp, openDrawer: () -> Unit, modifier: Modifier = Modifier,
     textAlpha: () -> Float = { 1f }, openProfile: () -> Unit
 ) {
     Column(
@@ -153,7 +159,7 @@ private fun HomeHero(
             }
             .padding(start = Clay.Gutter, end = Clay.Gutter, top = topInset + 10.dp, bottom = 15.dp)
     ) {
-        NativeHeader("Namaste, Aanya", "GOOD MORNING", openDrawer, titleSize = 22.sp,
+        NativeHeader(ui.title, ui.greeting, openDrawer, titleSize = 22.sp,
             modifier = Modifier.graphicsLayer { alpha = textAlpha() },
             action = {
                 Box(Modifier.clickable(onClickLabel = "Your profile", onClick = openProfile)) {
@@ -161,13 +167,13 @@ private fun HomeHero(
                 }
             })
         Spacer(Modifier.height(4.dp))
-        HomeText("Your money is looking healthy today.", 10.sp, Color(0xFF61746C),
+        HomeText(ui.subtitle, 10.sp, Color(0xFF61746C),
             modifier = Modifier.graphicsLayer { alpha = textAlpha() })
     }
 }
 
 @Composable
-private fun MonthCard(modifier: Modifier = Modifier) {
+private fun MonthCard(ui: HomeUi, modifier: Modifier = Modifier) {
     Column(
         modifier.fillMaxWidth().heightIn(min = 203.dp)
             .homeSurface(RoundedCornerShape(27.dp), Clay.White, soft = false)
@@ -176,23 +182,24 @@ private fun MonthCard(modifier: Modifier = Modifier) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             HomeText("This month", 11.sp, Color(0xFF727A76), FontWeight.Bold, Modifier.weight(1f))
             HomeText(
-                "June⌄", 9.sp, weight = FontWeight.Bold,
+                "${ui.monthLabel}⌄", 9.sp, weight = FontWeight.Bold,
                 modifier = Modifier.background(Color(0xFFEEF1EB), CircleShape).height(26.dp)
                     .wrapContentHeight(Alignment.CenterVertically).padding(horizontal = 10.dp)
             )
         }
         Spacer(Modifier.height(12.dp))
-        HomeText("₹42,680", 33.sp, tracking = (-1.98).sp)
+        HomeText(ui.spent, 33.sp, tracking = (-1.98).sp, maxLines = 1)
         Row(Modifier.padding(top = 2.dp)) {
-            HomeText("Total spent ", 9.sp, Color(0xFF949895))
-            HomeText("8% less", 9.sp, Color(0xFF668B7D), FontWeight.Bold)
-            HomeText(" than May", 9.sp, Color(0xFF949895))
+            HomeText(ui.changeLead, 9.sp, Color(0xFF949895))
+            if (ui.changeStrong.isNotEmpty())
+                HomeText(ui.changeStrong, 9.sp, if (ui.changeUp) Color(0xFFA56D58) else Color(0xFF668B7D), FontWeight.Bold)
+            HomeText(ui.changeTrail, 9.sp, Color(0xFF949895))
         }
         Spacer(Modifier.height(14.dp))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            HomeStat("Income", "₹85K", Color(0xFFEDF2E9), Modifier.weight(1f))
-            HomeStat("Savings", "₹32K", Color(0xFFEEEAF6), Modifier.weight(1f))
-            HomeStat("Budget left", "₹18K", Color(0xFFF7E8D9), Modifier.weight(1f))
+            HomeStat("Income", ui.incomeStat, Color(0xFFEDF2E9), Modifier.weight(1f))
+            HomeStat("Savings", ui.savingsStat, Color(0xFFEEEAF6), Modifier.weight(1f))
+            HomeStat("Budget left", ui.budgetStat, Color(0xFFF7E8D9), Modifier.weight(1f))
         }
     }
 }
@@ -221,27 +228,45 @@ private fun HomeSection(title: String, action: String, onClick: () -> Unit) {
 }
 
 @Composable
-private fun HomeCategories(onClick: () -> Unit) {
+private fun HomeCategories(categories: List<HomeCategory>, onClick: () -> Unit) {
+    if (categories.isEmpty()) {
+        HomeText("Your spending categories will appear here.", 9.sp, Color(0xFF969996),
+            modifier = Modifier.padding(start = 2.dp, top = 2.dp, bottom = 8.dp))
+        return
+    }
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(start = 2.dp, top = 2.dp, bottom = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
-        listOf(
-            Triple("Food", R.drawable.ic_pingpaisa_food, HomeTone.Peach),
-            Triple("Travel", R.drawable.ic_pingpaisa_car, HomeTone.Sage),
-            Triple("Shopping", R.drawable.ic_pingpaisa_bag, HomeTone.Pink),
-            Triple("Bills", R.drawable.ic_pingpaisa_bill, HomeTone.Lavender)
-        ).forEach { (label, icon, tone) ->
+        categories.forEach { category ->
             Row(
                 Modifier.homeSurface(CircleShape, Color(0xFFF8F5F0)).clickable(onClick = onClick)
                     .padding(start = 7.dp, end = 13.dp, top = 7.dp, bottom = 7.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                HomeBadge(icon, tone)
-                HomeText(label, 9.sp, weight = FontWeight.Bold)
+                HomeBadge(category.icon, HomeTone.valueOf(category.tone.name))
+                HomeText(category.label, 9.sp, weight = FontWeight.Bold, maxLines = 1)
+                if (category.amount.isNotEmpty()) HomeText(category.amount, 8.sp, Color(0xFF969996))
             }
         }
+    }
+}
+
+/** Shown instead of the recent list until the first transaction exists. */
+@Composable
+private fun HomeEmptyActivity(onAdd: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().homeSurface(RoundedCornerShape(20.dp), Color(0xFFFBF9F6)).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        HomeBadge(R.drawable.ic_pingpaisa_wallet, HomeTone.Sage, small = false)
+        HomeText("No transactions yet", 11.sp, weight = FontWeight.Bold)
+        HomeText("Payments are added automatically once notification access is on, or you can add one yourself.",
+            8.sp, Color(0xFF8C918F), modifier = Modifier.padding(horizontal = 6.dp))
+        Spacer(Modifier.height(4.dp))
+        HomeText("Add an expense", 9.sp, Color(0xFF719487), FontWeight.ExtraBold,
+            Modifier.clip(CircleShape).clickable(onClick = onAdd).padding(horizontal = 12.dp, vertical = 6.dp))
     }
 }
 

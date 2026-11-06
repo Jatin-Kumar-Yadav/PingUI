@@ -1,5 +1,6 @@
 package com.pingpaisa.app.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Index
 import androidx.room.PrimaryKey
@@ -26,7 +27,10 @@ data class Transaction(
     val source: String = "SMS",  // "SMS" or "manual"
     val category: String = "Uncategorized",
     val subcategory: String = "Miscellaneous",
-    val type: String = TYPE_EXPENSE
+    val type: String = TYPE_EXPENSE,
+    // Added in database version 2 (see AppDatabase.MIGRATION_1_2). The default keeps old rows valid.
+    @ColumnInfo(defaultValue = "")
+    val note: String = ""
 ) {
     companion object {
         const val TYPE_EXPENSE = "expense"

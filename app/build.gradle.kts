@@ -23,6 +23,11 @@ android {
     buildFeatures { compose = true }
 }
 
+// Room writes each database version's schema here (kept in git) so migrations can be checked.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2025.04.01"))
     implementation("androidx.activity:activity-compose:1.10.1")
