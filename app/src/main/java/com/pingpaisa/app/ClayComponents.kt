@@ -197,8 +197,12 @@ internal fun ClayBadge(
     ), contentAlignment = Alignment.Center) { NativeIcon(icon, iconSize, tone.ink) }
 }
 
+/** False on screens shown before sign-in (Onboarding, Sign up, login), where the ☰ button is not drawn. */
+internal val LocalMenuEnabled = staticCompositionLocalOf { true }
+
 @Composable
 internal fun MenuButton(onClick: () -> Unit, dark: Boolean = false) {
+    if (!LocalMenuEnabled.current) return
     Box(Modifier.size(40.dp).claySurface(
         CircleShape, Color.White.copy(alpha = .14f),
         if (dark) ClayShadow.None else ClayShadow.Menu,

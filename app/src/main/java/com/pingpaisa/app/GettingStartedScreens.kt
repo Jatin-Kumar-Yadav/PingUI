@@ -11,7 +11,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.animation.core.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
@@ -87,46 +96,115 @@ internal fun OnboardingScreen(menu: () -> Unit, done: () -> Unit) {
     }
 }
 
+private const val MAX_TRIES_BEFORE_WAIT = 5
+private const val BASE_WAIT_MS = 30_000L
+
+/**
+ * Login. Same look as the original PIN screen (green blob, lock badge, "WELCOME
+ * BACK"), but the keypad is replaced by a password box, because the account
+ * password can contain letters. [onLogin] checks the password and reports a
+ * [LoginResult]; [done] runs after a correct password.
+ *
+ * Guessing protection: after every 5 wrong tries the Unlock button waits
+ * 30 s, then 60 s, 90 s… The counter lives in saved UI state, so it survives
+ * rotation but resets if the app is fully closed.
+ */
 @Composable
-internal fun LockScreen(menu: () -> Unit, done: () -> Unit) {
-    var pin by rememberSaveable { mutableStateOf("") }
-    LaunchedEffect(pin) { if (pin.length == 4) { delay(180); done() } }
+internal fun LockScreen(
+    menu: () -> Unit,
+    name: String? = null,
+    onLogin: (password: String, result: (LoginResult) -> Unit) -> Unit = { _, result -> result(LoginResult.Success) },
+    done: () -> Unit
+) {
+    var password by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    var checking by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var showForgot by remember { mutableStateOf(false) }
+    var wrongTries by rememberSaveable { mutableIntStateOf(0) }
+    var waitUntil by rememberSaveable { mutableLongStateOf(0L) }
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(waitUntil) {
+        while (System.currentTimeMillis() < waitUntil) { now = System.currentTimeMillis(); delay(250) }
+        now = System.currentTimeMillis()
+    }
+    val secondsLeft = ((waitUntil - now + 999) / 1000).coerceAtLeast(0)
+    val focus = LocalFocusManager.current
+
+    fun submit() {
+        if (checking || secondsLeft > 0) return
+        if (password.isEmpty()) { error = "Enter your password"; return }
+        focus.clearFocus()
+        checking = true
+        error = null
+        onLogin(password) { result ->
+            checking = false
+            password = ""
+            when (result) {
+                LoginResult.Success -> { wrongTries = 0; done() }
+                LoginResult.NoAccount -> error = "There's no account on this phone yet."
+                LoginResult.WrongPassword -> {
+                    wrongTries++
+                    val left = MAX_TRIES_BEFORE_WAIT - wrongTries % MAX_TRIES_BEFORE_WAIT
+                    if (wrongTries % MAX_TRIES_BEFORE_WAIT == 0) {
+                        waitUntil = System.currentTimeMillis() + BASE_WAIT_MS * (wrongTries / MAX_TRIES_BEFORE_WAIT)
+                        now = System.currentTimeMillis()
+                        error = "Too many wrong tries. Please wait before trying again."
+                    } else error = "Wrong password. $left ${if (left == 1) "try" else "tries"} left before a short wait."
+                }
+            }
+        }
+    }
+
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.offset(x = (-120).dp, y = (-165).dp).size(480.dp,330.dp)
             .background(Brush.linearGradient(listOf(Color(0xFFDCE8D8),Color(0xFFABC5A5))),ClayBlobShape))
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 20.dp,end = 20.dp,top = 10.dp,bottom = 34.dp),
             horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.align(Alignment.Start)) { MenuButton(menu) }
+            // Keeps its height even when the menu button is hidden, so the layout doesn't jump.
+            Box(Modifier.align(Alignment.Start).heightIn(min = 40.dp)) { MenuButton(menu) }
             Box(Modifier.padding(top = 4.dp,bottom = 22.dp).size(69.dp)
                 .claySurface(RoundedCornerShape(24.dp),Color(0xFFD9E6D5),ClayShadow.Raised,inset = true),
                 contentAlignment = Alignment.Center) { NativeIcon(R.drawable.ic_pingpaisa_lock,30.dp,Color(0xFF5F8176)) }
             NativeText("WELCOME BACK",9.sp,Color(0xFF849089),FontWeight.ExtraBold,tracking = 1.44.sp)
-            NativeText("Enter your PIN",27.sp,tracking = (-1.35).sp,modifier = Modifier.padding(vertical = 7.dp))
-            NativeText("Securely unlock PingPaisa",12.sp,Color(0xFF8C918F))
-            Row(Modifier.padding(vertical = 34.dp),horizontalArrangement = Arrangement.spacedBy(19.dp)) {
-                repeat(4) { i ->
-                    val swell by animateFloatAsState(if (pin.length > i) 1.15f else 1f,
-                        spring(dampingRatio = .45f, stiffness = 420f), label = "PIN dot")
-                    Box(Modifier.graphicsLayer { scaleX = swell; scaleY = swell }.size(13.dp).background(if (pin.length > i) Color(0xFF719487) else Color.Transparent,CircleShape)
-                    .border(1.5.dp,if (pin.length > i) Color(0xFF719487) else Color(0xFF95A59E),CircleShape)) }
-            }
-            Column(Modifier.widthIn(max = 252.dp).fillMaxWidth(),verticalArrangement = Arrangement.spacedBy(19.dp)) {
-                listOf("1","2","3","4","5","6","7","8","9","bio","0","⌫").chunked(3).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(27.dp)) {
-                        row.forEach { key ->
-                            Box(Modifier.weight(1f).height(66.dp).claySurface(RoundedCornerShape(23.dp),Color(0xFFF8F4EF),ClayShadow.Raised)
-                                .clickable { when(key) { "bio" -> done(); "⌫" -> pin = pin.dropLast(1); else -> pin = (pin+key).take(4) } },
-                                contentAlignment = Alignment.Center) {
-                                if (key == "bio") NativeIcon(R.drawable.ic_pingpaisa_finger,26.dp,Color(0xFF698B80))
-                                else NativeText(key,18.sp,weight = FontWeight.Bold)
-                            }
-                        }
+            NativeText(if (name != null) "Hi, $name" else "Enter your password",27.sp,tracking = (-1.35).sp,
+                modifier = Modifier.padding(vertical = 7.dp), maxLines = 1)
+            NativeText("Enter your password to unlock PingPaisa",12.sp,Color(0xFF8C918F))
+
+            Spacer(Modifier.height(30.dp))
+            ClayTextField("Password", password, { password = it; error = null },
+                modifier = Modifier.widthIn(max = 420.dp), placeholder = "Your password", error = error,
+                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
+                trailing = {
+                    Box(Modifier.size(32.dp).clickable { showPassword = !showPassword }, contentAlignment = Alignment.Center) {
+                        NativeIcon(R.drawable.ic_pingpaisa_eye, 20.dp,
+                            if (showPassword) Clay.Teal else Color(0xFFAFB1AE),
+                            if (showPassword) "Hide password" else "Show password")
                     }
-                }
-            }
-            NativeText("Forgot PIN?",11.sp,Color(0xFF719487),FontWeight.ExtraBold,Modifier.padding(top = 28.dp).clickable { pin = "" })
+                })
+            Spacer(Modifier.height(20.dp))
+            PrimaryAction(
+                when { checking -> "Checking…"; secondsLeft > 0 -> "Try again in ${secondsLeft}s"; else -> "Unlock   →" },
+                Modifier.widthIn(max = 420.dp).heightIn(min = 57.dp),
+                enabled = !checking && secondsLeft == 0L
+            ) { submit() }
+            NativeText("Forgot password?",11.sp,Color(0xFF719487),FontWeight.ExtraBold,
+                Modifier.padding(top = 24.dp).clickable { showForgot = true }.padding(8.dp))
         }
     }
+
+    if (showForgot) AlertDialog(
+        onDismissRequest = { showForgot = false },
+        title = { NativeText("Forgot your password?", 18.sp) },
+        text = {
+            NativeText("PingPaisa never stores your password, only a scrambled version of it, so it can't be recovered. " +
+                "To start over, clear PingPaisa's data in Android settings (App info → Storage → Clear data). " +
+                "This deletes your account and everything saved in the app on this phone.", 12.sp, lineHeight = 18.sp)
+        },
+        confirmButton = { TextButton({ showForgot = false }) { NativeText("Got it", 12.sp) } }
+    )
 }
 
 @Composable

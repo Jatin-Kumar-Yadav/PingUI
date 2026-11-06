@@ -2,6 +2,7 @@ package com.pingpaisa.app.data
 
 import android.content.Context
 import com.pingpaisa.app.healthscore.HealthScoreHistory
+import com.pingpaisa.app.security.PasswordHasher
 import kotlinx.coroutines.flow.Flow
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -139,6 +140,22 @@ class ExpenseRepository(private val db: AppDatabase) {
     // ----------------------------------------------------------------- profile
 
     suspend fun hasAccount(): Boolean = profiles.exists()
+    suspend fun getProfile(): UserProfile? = profiles.get()
+
+    /**
+     * Saves the new account. [hash] is the already-hashed password (see PasswordHasher).
+     * Returns false, changing nothing, if an account already exists on this phone.
+     */
+    suspend fun createAccount(name: String, monthlySalary: Double, hash: PasswordHasher.Hashed): Boolean =
+        profiles.insertIfAbsent(
+            UserProfile(
+                name = name.trim(),
+                monthlySalary = monthlySalary,
+                passwordHash = hash.hash,
+                passwordSalt = hash.salt
+            )
+        ) != -1L
+
     suspend fun updateNameAndSalary(name: String, salary: Double) = profiles.updateNameAndSalary(name.trim(), salary)
 
     // ----------------------------------------------------------------- helpers

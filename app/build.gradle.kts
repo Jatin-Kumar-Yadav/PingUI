@@ -47,4 +47,7 @@ dependencies {
 
     // Background work for database access and the notification listener
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
+
+    // Unit tests that run on the computer (no phone needed)
+    testImplementation("junit:junit:4.13.2")
 }

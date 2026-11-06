@@ -3,6 +3,7 @@ package com.pingpaisa.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.pingpaisa.app.data.Categorizer
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -53,7 +54,9 @@ internal object Clay {
 }
 
 internal enum class Screen(val title: String, val group: String) {
-    Onboarding("Onboarding", "Get started"), Lock("App Lock", "Get started"),
+    Onboarding("Onboarding", "Get started"), SignUp("Create account", "Get started"),
+    NotificationAccess("Notification access", "Get started"),
+    Lock("App Lock", "Get started"),
     Home("Home Dashboard", "Money"), Transactions("Transactions", "Money"),
     Detail("Transaction detail", "Money"), Entry("Add an expense", "Money"),
     Budgets("Budgets & goals", "Planning"), Flow("Cash flow", "Planning"),
@@ -74,6 +77,18 @@ class MainActivity : ComponentActivity() {
         Categorizer.init(applicationContext)
         enableEdgeToEdge()
         setContent { PingPaisa(vm = appViewModel) }
+    }
+
+    // App lock timer: leaving the app for 2+ minutes asks for the password again.
+    // Rotation also stops/starts the activity, so it is ignored.
+    override fun onStart() {
+        super.onStart()
+        appViewModel.onAppForegrounded()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        if (!isChangingConfigurations) appViewModel.onAppBackgrounded()
     }
 }
 
@@ -106,7 +121,24 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewMod
             history = history.dropLast(1)
         }
         fun menu() { scope.launch { drawer.open() } }
-        BackHandler(drawer.isOpen || current != Screen.Home) {
+        /** Go to [screen] and forget the back history (after login and after setup). */
+        fun startFresh(screen: Screen) {
+            goingBack = false
+            history = emptyList()
+            current = screen
+            scope.launch { drawer.close() }
+        }
+
+        // Start-up gate: decides what may be shown (see StartupGate.kt). Previews have no vm and skip it.
+        val account = vm?.account?.collectAsStateWithLifecycle()?.value
+        val unlocked = vm?.unlocked?.collectAsStateWithLifecycle()?.value ?: false
+        val shown: Screen? = if (account == null) current else gateScreen(account, unlocked, current)
+        LaunchedEffect(shown) { if (shown != null && shown != current) startFresh(shown) }
+        if (shown == null) { StartupSplash(); return@CompositionLocalProvider }
+        val atRoot = if (account == null) shown == Screen.Home else isRootScreen(account, unlocked, shown)
+
+        // On a root screen (Home, Onboarding, locked login) system Back leaves the app.
+        BackHandler(drawer.isOpen || !atRoot) {
             if (drawer.isOpen) scope.launch { drawer.close() } else back()
         }
         ModalNavigationDrawer(drawerState = drawer, drawerContent = {
@@ -117,16 +149,19 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewMod
                     Spacer(Modifier.weight(1f))
                     RoundAction(R.drawable.ic_pingpaisa_close, "Close navigator", 33.dp) { scope.launch { drawer.close() } }
                 }
+                // With an account the drawer leaves out first-run, login and design-reference screens;
+                // previews and screenshot tests (no vm) still list every screen.
+                val listed = Screen.entries.filter { vm == null || it !in drawerHiddenScreens }
                 Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 10.dp)) {
-                    Screen.entries.groupBy { it.group }.forEach { (group, screens) ->
+                    listed.groupBy { it.group }.forEach { (group, screens) ->
                         NativeText(group.uppercase(), 7.sp, Clay.Muted, FontWeight.ExtraBold,
                             Modifier.padding(start = 11.dp, top = 13.dp, bottom = 6.dp), tracking = 1.sp)
                         screens.forEach { screen ->
                             Row(Modifier.fillMaxWidth().heightIn(min = 37.dp)
-                                .background(if (screen == current) Clay.Sage.copy(alpha = .25f) else Color.Transparent, RoundedCornerShape(14.dp))
+                                .background(if (screen == shown) Clay.Sage.copy(alpha = .25f) else Color.Transparent, RoundedCornerShape(14.dp))
                                 .clickable { navigate(screen) }.padding(horizontal = 9.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically) {
-                                NativeText((screen.ordinal + 1).toString().padStart(2, '0'), 8.sp, Clay.Muted, modifier = Modifier.width(28.dp))
+                                NativeText((listed.indexOf(screen) + 1).toString().padStart(2, '0'), 8.sp, Clay.Muted, modifier = Modifier.width(28.dp))
                                 NativeText(screen.title, 9.sp, modifier = Modifier.weight(1f))
                                 NativeIcon(R.drawable.ic_pingpaisa_chevron, 13.dp, Clay.Muted)
                             }
@@ -139,11 +174,11 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewMod
                 }
             }
         }) {
-            val tabs = current !in listOf(Screen.Onboarding, Screen.Lock, Screen.Style)
+            val tabs = shown !in listOf(Screen.Onboarding, Screen.SignUp, Screen.NotificationAccess, Screen.Lock, Screen.Style)
             // Device-owned bars are kept outside the app content, never simulated or doubled.
-            Box(Modifier.fillMaxSize().background(if (current == Screen.Scan) Clay.Dark else Clay.Cream)
+            Box(Modifier.fillMaxSize().background(if (shown == Screen.Scan) Clay.Dark else Clay.Cream)
                 .windowInsetsPadding(WindowInsets.safeDrawing).imePadding()) {
-                AnimatedContent(current, modifier = Modifier.fillMaxSize(), transitionSpec = {
+                AnimatedContent(shown, modifier = Modifier.fillMaxSize(), transitionSpec = {
                     val direction = if (goingBack) -1 else 1
                     // Soft, unhurried page change: the new page glides in and settles, the old one drifts away.
                     (fadeIn(tween(420, 90, SoftEase)) + slideInHorizontally(tween(520, easing = SoftEase)) { it / 10 * direction }
@@ -151,10 +186,13 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewMod
                         .togetherWith(fadeOut(tween(220, easing = SoftEase)) + slideOutHorizontally(tween(520, easing = SoftEase)) { -it / 14 * direction })
                 }, label = "Screen navigation") { screen ->
                     states.SaveableStateProvider(screen.name) {
-                        NativeScreen(screen, ::navigate, ::menu, ::back, vm)
+                        // vm == null: previews/screenshot tests keep the menu on every screen.
+                        CompositionLocalProvider(LocalMenuEnabled provides (vm == null || screen !in noMenuScreens)) {
+                            NativeScreen(screen, ::navigate, ::menu, ::back, vm, ::startFresh)
+                        }
                     }
                 }
-                if (tabs) NativeTabs(current, ::navigate, Modifier.align(Alignment.BottomCenter))
+                if (tabs) NativeTabs(shown, ::navigate, Modifier.align(Alignment.BottomCenter))
             }
         }
     }
@@ -164,7 +202,8 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewMod
 @Composable
 internal fun NativeScreen(
     screen: Screen, navigate: (Screen) -> Unit, menu: () -> Unit, back: () -> Unit,
-    @Suppress("UNUSED_PARAMETER") vm: AppViewModel? = null   // screens start reading it from step 31
+    vm: AppViewModel? = null,   // null only in previews and screenshot tests
+    startFresh: (Screen) -> Unit = navigate
 ) {
     when (screen) {
         Screen.Home -> HomeDashboard(navigate, menu)
@@ -181,10 +220,34 @@ internal fun NativeScreen(
         Screen.Health -> HealthScreen(menu, back)
         Screen.Loan -> LoanScreen(menu, back)
         Screen.Settings -> SettingsScreen(menu, navigate)
-        Screen.Onboarding -> OnboardingScreen(menu) { navigate(Screen.Lock) }
-        Screen.Lock -> LockScreen(menu) { navigate(Screen.Home) }
+        Screen.Onboarding -> OnboardingScreen(menu) { navigate(Screen.SignUp) }
+        // First run: Onboarding → Sign up → Notification access → Home. Setup screens are
+        // dropped from the back history so Back from Home can't return to them.
+        Screen.SignUp -> SignUpScreen(menu) { name, salary, password, done ->
+            if (vm == null) done(false)   // previews/screenshot tests have no database
+            else vm.createAccount(name, salary, password) { created ->
+                if (created) startFresh(Screen.NotificationAccess)
+                done(created)
+            }
+        }
+        Screen.NotificationAccess -> NotificationAccessScreen(menu) { startFresh(Screen.Home) }
+        Screen.Lock -> {
+            val account = vm?.account?.collectAsStateWithLifecycle()?.value
+            LockScreen(
+                menu,
+                name = (account as? AccountState.Ready)?.profile?.name,
+                // Previews/screenshot tests have no database, so they unlock straight away.
+                onLogin = { password, result -> if (vm == null) result(LoginResult.Success) else vm.login(password, result) }
+            ) { startFresh(Screen.Home) }   // login is not kept in the back history
+        }
         Screen.Style -> StyleScreen(menu)
     }
+}
+
+/** Shown for the moment it takes to read the account on start, instead of guessing a screen. */
+@Composable
+private fun StartupSplash() {
+    Box(Modifier.fillMaxSize().background(Clay.Cream), contentAlignment = Alignment.Center) { Brand(large = true) }
 }
 
 @Composable

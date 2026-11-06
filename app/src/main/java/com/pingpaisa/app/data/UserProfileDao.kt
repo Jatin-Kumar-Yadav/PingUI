@@ -13,6 +13,15 @@ interface UserProfileDao {
     @Query("SELECT * FROM user_profile WHERE id = ${UserProfile.SINGLE_USER_ID}")
     fun observe(): Flow<UserProfile?>
 
+    /**
+     * Creates the account only if none exists yet. Returns the new row id, or -1
+     * if an account was already there (nothing is changed). Because there is one
+     * fixed row id, this is a single atomic step: it can never overwrite an
+     * existing account's password.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertIfAbsent(profile: UserProfile): Long
+
     /** Creates the account, or replaces it (used by "change password" / profile edits). */
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun save(profile: UserProfile)

@@ -1,6 +1,7 @@
 package com.pingpaisa.app
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.pingpaisa.app.data.Budget
@@ -17,8 +18,12 @@ import com.pingpaisa.app.healthscore.HealthScoreHistory
 import com.pingpaisa.app.healthscore.InsightEngine
 import com.pingpaisa.app.healthscore.ScoreCalculator
 import com.pingpaisa.app.healthscore.SpendingHistory
+import com.pingpaisa.app.security.PasswordHasher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -33,6 +38,9 @@ sealed interface AccountState {
     data object NoAccount : AccountState
     data class Ready(val profile: UserProfile) : AccountState
 }
+
+/** Outcome of a password check on the login screen. */
+enum class LoginResult { Success, WrongPassword, NoAccount }
 
 /** Everything the Financial health, Loan and Home screens need about this month. */
 data class HealthState(
@@ -67,6 +75,25 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val account: StateFlow<AccountState> = repo.observeProfile()
         .map { if (it == null) AccountState.NoAccount else AccountState.Ready(it) }
         .state(AccountState.Loading)
+
+    // ------------------------------------------------------------ session lock
+
+    /**
+     * True once the password was entered (or the account was just created) in this
+     * session. Memory only, never saved: a fresh start of the app always asks again.
+     */
+    private val _unlocked = MutableStateFlow(false)
+    val unlocked: StateFlow<Boolean> = _unlocked.asStateFlow()
+    private var backgroundedAt = 0L
+
+    /** Called when the app leaves the screen (not for rotation). */
+    fun onAppBackgrounded() { backgroundedAt = SystemClock.elapsedRealtime() }
+
+    /** Called when the app comes back: locks again if it was away for [RELOCK_AFTER_MS] or more. */
+    fun onAppForegrounded() {
+        if (backgroundedAt != 0L && SystemClock.elapsedRealtime() - backgroundedAt >= RELOCK_AFTER_MS) _unlocked.value = false
+        backgroundedAt = 0L
+    }
 
     // ---------------------------------------------------------- derived values
 
@@ -141,5 +168,53 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateNameAndSalary(name: String, salary: Double) = launch { repo.updateNameAndSalary(name, salary) }
 
+    /**
+     * Sign up. The password is hashed on a background thread (it is deliberately slow),
+     * then saved. [onDone] gets true when the account was created, or false if one
+     * already exists on this phone. The plain password is wiped from memory afterwards.
+     */
+    fun createAccount(name: String, salary: Double, password: String, onDone: (created: Boolean) -> Unit) {
+        viewModelScope.launch {
+            val chars = password.toCharArray()
+            val created = try {
+                val hashed = withContext(Dispatchers.Default) { PasswordHasher.hash(chars) }
+                // Unlock before the insert so the new account doesn't flash the login screen;
+                // undone below if an account already existed.
+                _unlocked.value = true
+                repo.createAccount(name, salary, hashed)
+            } finally {
+                chars.fill('\u0000')
+            }
+            if (!created) _unlocked.value = false
+            onDone(created)
+        }
+    }
+
+    /**
+     * Login. Re-hashes [password] with the account's salt on a background thread and
+     * compares it with the stored hash. The plain password is wiped afterwards.
+     */
+    fun login(password: String, onResult: (LoginResult) -> Unit) {
+        viewModelScope.launch {
+            val profile = repo.getProfile()
+            if (profile == null) { onResult(LoginResult.NoAccount); return@launch }
+            val chars = password.toCharArray()
+            val ok = try {
+                withContext(Dispatchers.Default) {
+                    PasswordHasher.verify(chars, profile.passwordHash, profile.passwordSalt)
+                }
+            } finally {
+                chars.fill('\u0000')
+            }
+            if (ok) _unlocked.value = true
+            onResult(if (ok) LoginResult.Success else LoginResult.WrongPassword)
+        }
+    }
+
     fun recordScore(score: Int, risk: ScoreCalculator.RiskLevel) = launch { repo.recordScore(score, risk.name) }
+
+    companion object {
+        /** Away from the app this long and the password is asked again. */
+        const val RELOCK_AFTER_MS = 2 * 60_000L
+    }
 }
