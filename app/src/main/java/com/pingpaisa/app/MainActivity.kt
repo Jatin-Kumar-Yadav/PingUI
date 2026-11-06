@@ -2,6 +2,8 @@ package com.pingpaisa.app
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.viewModels
+import com.pingpaisa.app.data.Categorizer
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -63,15 +65,24 @@ internal enum class Screen(val title: String, val group: String) {
 }
 
 class MainActivity : ComponentActivity() {
+    // Survives rotation; shared by every screen.
+    private val appViewModel: AppViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Load the merchant dataset before anything can categorize (same as the old tracker).
+        Categorizer.init(applicationContext)
         enableEdgeToEdge()
-        setContent { PingPaisa() }
+        setContent { PingPaisa(vm = appViewModel) }
     }
 }
 
+/**
+ * [vm] is the live app state. It is null only in Android Studio previews and the
+ * screenshot tests, which have no database and keep showing the design's sample data.
+ */
 @Composable
-internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding) {
+internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewModel? = null) {
     val colors = lightColorScheme(primary = Clay.Teal, onPrimary = Color.White,
         background = Clay.Cream, surface = Clay.Cream, onSurface = Clay.Ink,
         secondaryContainer = Clay.Sage, onSecondaryContainer = Clay.Ink)
@@ -140,7 +151,7 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding) {
                         .togetherWith(fadeOut(tween(220, easing = SoftEase)) + slideOutHorizontally(tween(520, easing = SoftEase)) { -it / 14 * direction })
                 }, label = "Screen navigation") { screen ->
                     states.SaveableStateProvider(screen.name) {
-                        NativeScreen(screen, ::navigate, ::menu, ::back)
+                        NativeScreen(screen, ::navigate, ::menu, ::back, vm)
                     }
                 }
                 if (tabs) NativeTabs(current, ::navigate, Modifier.align(Alignment.BottomCenter))
@@ -151,7 +162,10 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding) {
 }
 
 @Composable
-internal fun NativeScreen(screen: Screen, navigate: (Screen) -> Unit, menu: () -> Unit, back: () -> Unit) {
+internal fun NativeScreen(
+    screen: Screen, navigate: (Screen) -> Unit, menu: () -> Unit, back: () -> Unit,
+    @Suppress("UNUSED_PARAMETER") vm: AppViewModel? = null   // screens start reading it from step 31
+) {
     when (screen) {
         Screen.Home -> HomeDashboard(navigate, menu)
         Screen.Transactions -> TransactionsScreen(menu, navigate)

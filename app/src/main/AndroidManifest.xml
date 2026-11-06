@@ -11,5 +11,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Reads bank payment SMS notifications and saves them as transactions.
+             Android only starts it after the user turns on notification access
+             for PingPaisa in system settings. The label is what they see there. -->
+        <service
+            android:name=".data.PaymentNotificationListener"
+            android:label="PingPaisa payment capture"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

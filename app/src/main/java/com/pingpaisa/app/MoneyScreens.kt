@@ -29,15 +29,8 @@ import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.setProgress
+import com.pingpaisa.app.healthscore.Money
 import kotlin.math.roundToInt
-
-internal fun formatRupees(value: Int): String {
-    // java.text.NumberFormat uses western grouping on some Android/JVM versions.
-    val digits = kotlin.math.abs(value.toLong()).toString()
-    val grouped = if (digits.length <= 3) digits else
-        digits.dropLast(3).reversed().chunked(2).joinToString(",").reversed() + "," + digits.takeLast(3)
-    return (if (value < 0) "−₹" else "₹") + grouped
-}
 
 @Composable
 internal fun TransactionsScreen(menu: () -> Unit, navigate: (Screen) -> Unit) {
@@ -422,7 +415,7 @@ internal fun LoanScreen(menu: () -> Unit, back: () -> Unit) {
         Spacer(Modifier.height(18.dp))
         Column(Modifier.fillMaxWidth().claySurface(RoundedCornerShape(27.dp), shadow = ClayShadow.Raised).padding(18.dp)) {
             NativeText("LOAN AMOUNT", 7.sp, Color(0xFF999999), modifier = Modifier.align(Alignment.CenterHorizontally), tracking = .91.sp)
-            NativeText(formatRupees(loan.toInt()), 29.sp, tracking = (-1.45).sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 7.dp, bottom = 14.dp))
+            NativeText(Money.inr(loan.toInt()), 29.sp, tracking = (-1.45).sp, modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 7.dp, bottom = 14.dp))
             LoanAmountSlider(loan) { loan = it }
             Row { NativeText("₹1L", 6.sp, Color(0xFFAAAAAA), modifier = Modifier.weight(1f)); NativeText("₹20L", 6.sp, Color(0xFFAAAAAA)) }
             Row(Modifier.fillMaxWidth().padding(top = 17.dp), verticalAlignment = Alignment.CenterVertically,
@@ -440,7 +433,7 @@ internal fun LoanScreen(menu: () -> Unit, back: () -> Unit) {
             gradient = Color(0xFFD9E7D5) to Color(0xFFBDD3B8)).padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 NativeText("ESTIMATED EMI", 6.sp, tracking = .6.sp)
-                Row(verticalAlignment = Alignment.CenterVertically) { NativeText(formatRupees(emi), 20.sp, modifier = Modifier.padding(vertical = 4.dp)); NativeText("/mo", 8.sp, weight = FontWeight.Medium) }
+                Row(verticalAlignment = Alignment.CenterVertically) { NativeText(Money.inr(emi), 20.sp, modifier = Modifier.padding(vertical = 4.dp)); NativeText("/mo", 8.sp, weight = FontWeight.Medium) }
             }
             Column(horizontalAlignment = Alignment.End) { NativeText("INTEREST", 6.sp, tracking = .6.sp); NativeText("10.4%", 12.sp, weight = FontWeight.Bold) }
         }
@@ -468,7 +461,7 @@ internal fun LoanScreen(menu: () -> Unit, back: () -> Unit) {
         }
         Spacer(Modifier.height(15.dp))
         PrimaryAction(if (showPlan) "Hide repayment plan" else "View repayment plan") { showPlan = !showPlan }
-        if (showPlan) NativeText("${years * 12} payments of ${formatRupees(emi)} · illustrative demo", 10.sp, modifier = Modifier.padding(top = 15.dp))
+        if (showPlan) NativeText("${years * 12} payments of ${Money.inr(emi)} · illustrative demo", 10.sp, modifier = Modifier.padding(top = 15.dp))
     }
 }
 
