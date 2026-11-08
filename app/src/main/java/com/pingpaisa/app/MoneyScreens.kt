@@ -493,57 +493,232 @@ private fun ProgressRing(value: Float, color: Color, size: androidx.compose.ui.u
     }
 }
 
+/**
+ * [ui] is the real list (see BudgetsUi.from); the default is the design's sample, used by previews
+ * and the screenshot tests. In the real app ([BudgetsUi.editable]) the + button adds a budget,
+ * a card opens it to change the limit or delete it. Savings goals below work the same way; the
+ * design's sample goal is shown only for previews.
+ */
 @Composable
-internal fun BudgetsScreen(menu: () -> Unit, back: () -> Unit) {
+internal fun BudgetsScreen(
+    menu: () -> Unit, back: () -> Unit, ui: BudgetsUi = BudgetsUi.Sample,
+    categoryChoices: List<String> = emptyList(),
+    onSave: (category: String, limit: Double) -> Unit = { _, _ -> },
+    onDelete: (category: String) -> Unit = {},
+    goals: List<GoalRow> = emptyList(),
+    onSaveGoal: (id: Int, name: String, target: Double, saved: Double) -> Unit = { _, _, _, _ -> },
+    onDeleteGoal: (id: Int) -> Unit = {}
+) {
+    var form by remember { mutableStateOf<BudgetDraft?>(null) }
+    var goalForm by remember { mutableStateOf<GoalDraft?>(null) }
     ScreenScroll {
-        NativeHeader("Budgets & goals", "JUNE 2025", menu, back,
-            action = { RoundAction(R.drawable.ic_pingpaisa_plus, "Add budget") {} })
+        NativeHeader("Budgets & goals", ui.month, menu, back, action = {
+            if (ui.editable) RoundAction(R.drawable.ic_pingpaisa_plus, "Add budget") { form = BudgetDraft() }
+        })
         Spacer(Modifier.height(18.dp))
         Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min).claySurface(RoundedCornerShape(22.dp), shadow = ClayShadow.Raised,
             gradient = Color(0xFFBDD1B8) to Color(0xFF9ABB94)).padding(17.dp)) {
             Column(Modifier.weight(1f)) {
                 NativeText("Monthly budget", 8.sp, Color(0xFF395148).copy(alpha = .7f))
-                NativeText("₹60,000", 16.sp, Color(0xFF395148), FontWeight.Bold, Modifier.padding(top = 4.dp))
+                NativeText(ui.totalLimit, 16.sp, Color(0xFF395148), FontWeight.Bold, Modifier.padding(top = 4.dp), maxLines = 1)
             }
             // CSS: span+span { border-left: 1px solid rgba(65,82,73,.15); padding-left: 17px }
             Box(Modifier.width(1.dp).fillMaxHeight().background(Color(0xFF415249).copy(alpha = .15f)))
             Column(Modifier.weight(1f).padding(start = 17.dp)) {
-                NativeText("Remaining", 8.sp, Color(0xFF395148).copy(alpha = .7f))
-                NativeText("₹17,320", 16.sp, Color(0xFF395148), FontWeight.Bold, Modifier.padding(top = 4.dp))
+                NativeText(ui.remainingLabel, 8.sp, Color(0xFF395148).copy(alpha = .7f))
+                NativeText(ui.remaining, 16.sp, Color(0xFF395148), FontWeight.Bold, Modifier.padding(top = 4.dp), maxLines = 1)
             }
         }
         Spacer(Modifier.height(15.dp))
-        val percentages = listOf(62, 43, 86, 72)
-        val ringColors = listOf(Color(0xFFE5AF81), Color(0xFF8BAE86), Color(0xFFE99A98), Color(0xFF9E92CA))
-        NativeGrid(nativeCategories.withIndex().toList()) { (i, item), cell ->
-            Column(cell.heightIn(min = 156.dp).claySurface(RoundedCornerShape(24.dp)).padding(13.dp),
+        if (ui.isEmpty) BudgetsEmptyCard()
+        else NativeGrid(ui.rows) { row, cell ->
+            Column(cell.heightIn(min = 156.dp).claySurface(RoundedCornerShape(24.dp))
+                .then(if (!ui.editable) Modifier else Modifier.clickable(onClickLabel = "Change ${row.category} budget") {
+                    form = BudgetDraft(row.category, plainAmount(row.limit), isNew = false)
+                }).padding(13.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                ProgressRing(percentages[i] / 100f, ringColors[i]) {
-                    NativeText("${percentages[i]}%", 11.sp, ringColors[i], FontWeight.Bold)
+                ProgressRing(row.fraction, row.ring) {
+                    NativeText("${row.percent}%", 11.sp, row.ring, FontWeight.Bold)
                 }
-                NativeText(item.label, 10.sp, weight = FontWeight.Bold, modifier = Modifier.padding(top = 7.dp))
-                NativeText(listOf("₹12.4K / ₹20K","₹8.6K / ₹20K","₹8.6K / ₹10K","₹10.8K / ₹15K")[i],
-                    7.sp, Color(0xFF999999), modifier = Modifier.padding(top = 3.dp))
+                NativeText(row.category, 10.sp, weight = FontWeight.Bold, maxLines = 2,
+                    align = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 7.dp))
+                NativeText(row.usage, 7.sp, Color(0xFF999999), modifier = Modifier.padding(top = 3.dp))
             }
         }
         Spacer(Modifier.height(13.dp))
-        Column(Modifier.fillMaxWidth().claySurface(RoundedCornerShape(25.dp),
-            gradient = Color(0xFFEEEAF8) to Color(0xFFDDD6F1)).padding(15.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.size(43.dp).background(Color(0xFFF8F5FC), RoundedCornerShape(15.dp)),
-                    contentAlignment = Alignment.Center) { NativeIcon(R.drawable.ic_pingpaisa_target, 26.dp, Color(0xFF776BA0)) }
-                Column(Modifier.weight(1f)) {
-                    NativeText("SAVINGS GOAL", 9.sp, Color(0xFF849089), FontWeight.ExtraBold, tracking = 1.44.sp)
-                    NativeText("Dream trip to Japan", 10.sp, modifier = Modifier.padding(vertical = 3.dp))
+        if (!ui.editable) GoalCard(GoalsUi.Sample, onClick = null)
+        else {
+            goals.forEach { g ->
+                Box(Modifier.padding(bottom = 10.dp)) {
+                    GoalCard(g) { goalForm = GoalDraft(g.id, g.name, plainAmount(g.target), if (g.saved > 0) plainAmount(g.saved) else "") }
                 }
-                NativeText("68%", 12.sp, Color(0xFF6F6495), FontWeight.Bold)
             }
-            MiniProgress(.68f, Color(0xFF9C90C8), Modifier.padding(top = 11.dp, bottom = 5.dp), 10.dp)
-            Row {
-                NativeText("₹1,36,000 saved of ₹2,00,000", 7.sp, Color(0xFF85808E), modifier = Modifier.weight(1f))
-                NativeText("₹64,000 to go", 7.sp, weight = FontWeight.Bold)
-            }
+            if (goals.isEmpty()) NativeText("No savings goal yet. Set one to see how close you are.", 8.sp, Color(0xFF8C918F),
+                modifier = Modifier.padding(bottom = 10.dp))
+            PrimaryAction("Add a savings goal", Modifier.heightIn(min = 52.dp)) { goalForm = GoalDraft() }
         }
+    }
+
+    form?.let { draft ->
+        val available = remember(draft, ui, categoryChoices) {
+            if (draft.isNew) categoryChoices.filter { c -> ui.rows.none { it.category.equals(c, ignoreCase = true) } } else emptyList()
+        }
+        BudgetSheet(draft, available, onDismiss = { form = null },
+            onSave = { category, limit -> onSave(category, limit); form = null },
+            onDelete = { onDelete(draft.category); form = null })
+    }
+    goalForm?.let { draft ->
+        GoalSheet(draft, onDismiss = { goalForm = null },
+            onSave = { name, target, saved -> onSaveGoal(draft.id, name, target, saved); goalForm = null },
+            onDelete = { onDeleteGoal(draft.id); goalForm = null })
+    }
+}
+
+/** One savings goal (the design's lavender card). [onClick] is null for the sample. */
+@Composable
+private fun GoalCard(g: GoalRow, onClick: (() -> Unit)?) {
+    Column(Modifier.fillMaxWidth().claySurface(RoundedCornerShape(25.dp),
+        gradient = Color(0xFFEEEAF8) to Color(0xFFDDD6F1))
+        .then(if (onClick == null) Modifier else Modifier.clickable(onClickLabel = "Change ${g.name}", onClick = onClick)).padding(15.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(43.dp).background(Color(0xFFF8F5FC), RoundedCornerShape(15.dp)),
+                contentAlignment = Alignment.Center) { NativeIcon(R.drawable.ic_pingpaisa_target, 26.dp, Color(0xFF776BA0)) }
+            Column(Modifier.weight(1f)) {
+                NativeText("SAVINGS GOAL", 9.sp, Color(0xFF849089), FontWeight.ExtraBold, tracking = 1.44.sp)
+                NativeText(g.name, 10.sp, modifier = Modifier.padding(vertical = 3.dp), maxLines = 1)
+            }
+            NativeText("${g.percent}%", 12.sp, Color(0xFF6F6495), FontWeight.Bold)
+        }
+        MiniProgress(g.fraction, Color(0xFF9C90C8), Modifier.padding(top = 11.dp, bottom = 5.dp), 10.dp)
+        Row {
+            NativeText(g.savedText, 7.sp, Color(0xFF85808E), modifier = Modifier.weight(1f))
+            NativeText(g.toGoText, 7.sp, weight = FontWeight.Bold)
+        }
+    }
+}
+
+/** What the goal sheet starts with: a new goal (id 0) or an existing one. Amounts are text, as typed. */
+internal data class GoalDraft(val id: Int = 0, val name: String = "", val target: String = "", val saved: String = "")
+
+/** Add a savings goal, or change how much is saved / delete it. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun GoalSheet(draft: GoalDraft, onDismiss: () -> Unit, onSave: (String, Double, Double) -> Unit, onDelete: () -> Unit) {
+    var name by remember(draft) { mutableStateOf(draft.name) }
+    var target by remember(draft) { mutableStateOf(draft.target) }
+    var saved by remember(draft) { mutableStateOf(draft.saved) }
+    var tried by remember(draft) { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf(false) }
+    val errors = if (tried) GoalValidation.validate(name, target, saved) else GoalErrors()
+    val focus = LocalFocusManager.current
+    val next = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) })
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Clay.Cream) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            NativeText(if (draft.id == 0) "Add a savings goal" else "Change savings goal", 16.sp, tracking = (-.4).sp)
+            ClayTextField("Goal name", name, { name = it.take(60) }, placeholder = "e.g. Trip to Japan", error = errors.name,
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+                keyboardActions = next)
+            ClayTextField("Target amount", target, { if (BudgetValidation.isAmountText(it)) target = it },
+                placeholder = "e.g. 200000", prefix = "₹", error = errors.target,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+                keyboardActions = next)
+            ClayTextField("Saved so far", saved, { if (BudgetValidation.isAmountText(it)) saved = it },
+                placeholder = "0", prefix = "₹", error = errors.saved,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }))
+            PrimaryAction("Save", Modifier.heightIn(min = 52.dp)) {
+                tried = true
+                focus.clearFocus()
+                if (GoalValidation.validate(name, target, saved).isValid) onSave(name.trim(), target.toDouble(), saved.toDoubleOrNull() ?: 0.0)
+            }
+            if (draft.id != 0) NativeText("Delete this goal", 11.sp, DeleteInk, FontWeight.ExtraBold,
+                Modifier.align(Alignment.CenterHorizontally).clip(CircleShape).clickable { confirm = true }
+                    .padding(horizontal = 16.dp, vertical = 8.dp))
+        }
+    }
+    if (confirm) AlertDialog(
+        onDismissRequest = { confirm = false },
+        title = { NativeText("Delete ${draft.name}?", 18.sp) },
+        text = { NativeText("The goal and the amount saved towards it are removed from the app. Your money is not affected.", 12.sp, lineHeight = 18.sp) },
+        confirmButton = { TextButton({ confirm = false; onDelete() }) { NativeText("Delete", 12.sp, DeleteInk, FontWeight.Bold) } },
+        dismissButton = { TextButton({ confirm = false }) { NativeText("Cancel", 12.sp) } }
+    )
+}
+
+/** A limit as the text field shows it: "20000", or "1250.50". */
+internal fun plainAmount(value: Double): String =
+    if (value % 1.0 == 0.0) "%.0f".format(java.util.Locale.US, value) else "%.2f".format(java.util.Locale.US, value)
+
+/** What the budget sheet starts with: a new budget (no category yet) or an existing one. */
+internal data class BudgetDraft(val category: String = "", val limit: String = "", val isNew: Boolean = true)
+
+/** Add a budget (pick a category and a limit) or change / delete one. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun BudgetSheet(
+    draft: BudgetDraft, available: List<String>, onDismiss: () -> Unit,
+    onSave: (String, Double) -> Unit, onDelete: () -> Unit
+) {
+    var category by remember(draft) { mutableStateOf(draft.category) }
+    var limit by remember(draft) { mutableStateOf(draft.limit) }
+    var tried by remember(draft) { mutableStateOf(false) }
+    var confirm by remember { mutableStateOf(false) }
+    val errors = if (tried) BudgetValidation.validate(category, limit) else BudgetErrors()
+    val focus = LocalFocusManager.current
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = Clay.Cream) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            NativeText(if (draft.isNew) "Add a budget" else "${draft.category} budget", 16.sp, tracking = (-.4).sp)
+            if (draft.isNew) {
+                NativeText("CATEGORY", 8.sp, Color(0xFF849089), FontWeight.ExtraBold, tracking = 1.2.sp)
+                if (available.isEmpty()) NativeText("Every category already has a budget.", 9.sp, Color(0xFF8C918F))
+                available.forEach { c ->
+                    val style = categoryStyle(c)
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { category = c }
+                        .padding(vertical = 5.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ClayBadge(style.icon, style.tone, small = true)
+                        NativeText(c, 10.sp, modifier = Modifier.weight(1f), maxLines = 1)
+                        if (c == category) NativeText("✓", 12.sp, Color(0xFF5F8176), FontWeight.Bold)
+                    }
+                }
+                errors.category?.let { NativeText(it, 8.sp, DeleteInk) }
+            }
+            ClayTextField("Monthly limit", limit, { if (BudgetValidation.isAmountText(it)) limit = it },
+                placeholder = "e.g. 8000", prefix = "₹", error = errors.limit,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }))
+            PrimaryAction("Save", Modifier.heightIn(min = 52.dp)) {
+                tried = true
+                focus.clearFocus()
+                if (BudgetValidation.validate(category, limit).isValid) onSave(category, limit.toDouble())
+            }
+            if (!draft.isNew) NativeText("Delete this budget", 11.sp, DeleteInk, FontWeight.ExtraBold,
+                Modifier.align(Alignment.CenterHorizontally).clip(CircleShape).clickable { confirm = true }
+                    .padding(horizontal = 16.dp, vertical = 8.dp))
+        }
+    }
+    if (confirm) AlertDialog(
+        onDismissRequest = { confirm = false },
+        title = { NativeText("Delete ${draft.category} budget?", 18.sp) },
+        text = { NativeText("Only the limit is removed. Your transactions aren't changed.", 12.sp, lineHeight = 18.sp) },
+        confirmButton = { TextButton({ confirm = false; onDelete() }) { NativeText("Delete", 12.sp, DeleteInk, FontWeight.Bold) } },
+        dismissButton = { TextButton({ confirm = false }) { NativeText("Cancel", 12.sp) } }
+    )
+}
+
+/** No budgets yet. */
+@Composable
+private fun BudgetsEmptyCard() {
+    Column(
+        Modifier.fillMaxWidth().claySurface(RoundedCornerShape(22.dp), Color(0xFFFAF8F5)).padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        ClayBadge(R.drawable.ic_pingpaisa_target, Tone.Sage)
+        NativeText("No budgets yet", 11.sp, weight = FontWeight.Bold)
+        NativeText("Tap + to set a monthly limit for a category like Food or Travel. PingPaisa shows how much of it you've used.",
+            8.sp, Color(0xFF8C918F), align = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 
@@ -556,7 +731,7 @@ internal fun MiniProgress(value: Float, color: Color, modifier: Modifier = Modif
 }
 
 @Composable
-internal fun FlowScreen(menu: () -> Unit, back: () -> Unit) {
+internal fun FlowScreen(menu: () -> Unit, back: () -> Unit, ui: CashFlowUi = CashFlowUi.Sample) {
     ScreenScroll {
         NativeHeader("Cash flow", "LAST 6 MONTHS", menu, back)
         Spacer(Modifier.height(18.dp))
@@ -566,11 +741,13 @@ internal fun FlowScreen(menu: () -> Unit, back: () -> Unit) {
             ClayBadge(R.drawable.ic_pingpaisa_chart)
             Column(Modifier.weight(1f)) {
                 NativeText("Net savings this month", 7.sp)
-                NativeText("+₹32,320", 20.sp, tracking = (-.8).sp, modifier = Modifier.padding(vertical = 2.dp))
-                NativeText("Best month this quarter", 7.sp, Color(0xFF748078))
+                NativeText(ui.netText, 20.sp, tracking = (-.8).sp, modifier = Modifier.padding(vertical = 2.dp), maxLines = 1)
+                NativeText(ui.netCaption, 7.sp, Color(0xFF748078))
             }
-            NativeText("↑ 18%", 8.sp, Color(0xFF58806F), FontWeight.ExtraBold,
-                Modifier.background(Color.White.copy(alpha = .55f), CircleShape).padding(horizontal = 8.dp, vertical = 6.dp))
+            ui.netBadge?.let {
+                NativeText(it, 8.sp, if (it.startsWith("↓")) Color(0xFFA56D58) else Color(0xFF58806F), FontWeight.ExtraBold,
+                    Modifier.background(Color.White.copy(alpha = .55f), CircleShape).padding(horizontal = 8.dp, vertical = 6.dp))
+            }
         }
         Spacer(Modifier.height(17.dp))
         Column(Modifier.fillMaxWidth().claySurface(RoundedCornerShape(26.dp), shadow = ClayShadow.Raised).padding(15.dp)) {
@@ -585,25 +762,27 @@ internal fun FlowScreen(menu: () -> Unit, back: () -> Unit) {
                 horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Bottom) {
                 val grow = rememberEntrance(200, 900)
                 val fromBottom = Modifier.graphicsLayer { scaleY = grow.value; transformOrigin = TransformOrigin(.5f, 1f) }
-                listOf(72 to 48,90 to 55,64 to 68,84 to 44,76 to 60,94 to 51).forEachIndexed { i, bars ->
+                ui.months.forEach { bars ->
                     Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                         Row(Modifier.height(180.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Box(fromBottom.width(11.dp).fillMaxHeight(bars.first / 100f).background(Color(0xFF91B4A8), RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)))
-                            Box(fromBottom.width(11.dp).fillMaxHeight(bars.second / 100f).background(Color(0xFFEFC8A6), RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)))
+                            Box(fromBottom.width(11.dp).fillMaxHeight(bars.incomeFraction).background(Color(0xFF91B4A8), RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)))
+                            Box(fromBottom.width(11.dp).fillMaxHeight(bars.expenseFraction).background(Color(0xFFEFC8A6), RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp)))
                         }
-                        NativeText(listOf("Jan","Feb","Mar","Apr","May","Jun")[i], 7.sp, Color(0xFF969895), modifier = Modifier.padding(vertical = 7.dp))
+                        NativeText(bars.label, 7.sp, Color(0xFF969895), modifier = Modifier.padding(vertical = 7.dp))
                     }
                 }
             }
         }
         NativeText("Month summary", 12.sp, modifier = Modifier.padding(top = 18.dp, bottom = 12.dp))
-        listOf(Triple("Money in","₹85,000","+6.2%"),Triple("Money out","₹42,680","−8.0%")).forEachIndexed { i, item ->
+        listOf(Triple("Money in", ui.moneyIn, ui.moneyInChange), Triple("Money out", ui.moneyOut, ui.moneyOutChange)).forEachIndexed { i, item ->
             Row(Modifier.padding(bottom = 9.dp).fillMaxWidth().claySurface(RoundedCornerShape(20.dp), Color(0xFFFAF8F5)).padding(10.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ClayBadge(if (i == 0) R.drawable.ic_pingpaisa_wallet else R.drawable.ic_pingpaisa_bag, if (i == 0) Tone.Sage else Tone.Peach)
                 Column(Modifier.weight(1f)) { NativeText(item.first, 7.sp, Color(0xFF999999)); NativeText(item.second, 10.sp, weight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp)) }
-                NativeText(item.third, 8.sp, if (i == 0) Color(0xFF5E8A77) else Color(0xFFA56D58),
-                    modifier = Modifier.background(if (i == 0) Color(0xFFE3EDE0) else Color(0xFFF7E0D6), CircleShape).padding(horizontal = 7.dp, vertical = 5.dp))
+                item.third?.let { change ->
+                    NativeText(change, 8.sp, if (i == 0) Color(0xFF5E8A77) else Color(0xFFA56D58),
+                        modifier = Modifier.background(if (i == 0) Color(0xFFE3EDE0) else Color(0xFFF7E0D6), CircleShape).padding(horizontal = 7.dp, vertical = 5.dp))
+                }
             }
         }
     }

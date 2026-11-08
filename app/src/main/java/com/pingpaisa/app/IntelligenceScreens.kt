@@ -174,9 +174,20 @@ internal fun ScanScreen(menu: () -> Unit, back: () -> Unit) {
 }
 
 @Composable
-internal fun ChatScreen(menu: () -> Unit, back: () -> Unit, navigate: (Screen) -> Unit) {
+/**
+ * [chat] is the real conversation (answers from PaisaAi); null shows the design sample, used by
+ * previews and the screenshot tests.
+ */
+internal fun ChatScreen(menu: () -> Unit, back: () -> Unit, navigate: (Screen) -> Unit, chat: ChatState? = null) {
     var message by rememberSaveable { mutableStateOf("") }
     var sent by rememberSaveable { mutableStateOf(listOf<String>()) }
+    val scroll = rememberScrollState()
+    fun send(text: String) {
+        if (text.isBlank()) return
+        if (chat != null) chat.onAsk(text.trim()) else sent = sent + text
+        message = ""
+    }
+    LaunchedEffect(chat?.messages?.size) { if (chat != null && chat.messages.isNotEmpty()) scroll.animateScrollTo(scroll.maxValue) }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(Modifier.fillMaxWidth().height(70.dp)
@@ -197,10 +208,18 @@ internal fun ChatScreen(menu: () -> Unit, back: () -> Unit, navigate: (Screen) -
                 Box(Modifier.size(32.dp).background(Color.White.copy(alpha = .45f), CircleShape)
                     .clickable { message = "How can Paisa AI help?" }, contentAlignment = Alignment.Center) { NativeText("⋯", 16.sp) }
             }
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 14.dp, end = 14.dp, top = 16.dp, bottom = 170.dp)) {
+            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(start = 14.dp, end = 14.dp, top = 16.dp, bottom = 170.dp)) {
                 NativeText("TODAY", 6.sp, Color(0xFF969895), modifier = Modifier.align(Alignment.CenterHorizontally)
                     .background(Color(0xFFEBE8E3), CircleShape).padding(horizontal = 9.dp, vertical = 5.dp))
                 Spacer(Modifier.height(14.dp))
+                if (chat != null) {
+                    ChatBubble(chat.greeting, time = "")
+                    chat.messages.forEach { m ->
+                        Spacer(Modifier.height(if (m.user) 12.dp else 14.dp))
+                        if (m.user) ChatBubble(m.text, user = true, time = m.time)
+                        else m.reply?.let { ReplyBubble(it, m.time, navigate) }
+                    }
+                } else {
                 ChatBubble("Hi Aanya! I’ve looked at your June spending. What would you like to know?", time = "9:41 AM")
                 Spacer(Modifier.height(12.dp))
                 ChatBubble("Can I spend ₹20,000 on a new phone this month?", user = true)
@@ -210,16 +229,18 @@ internal fun ChatScreen(menu: () -> Unit, back: () -> Unit, navigate: (Screen) -
                     Spacer(Modifier.height(12.dp))
                     ChatBubble(it, user = true)
                 }
+                }
             }
         }
         Row(Modifier.align(Alignment.BottomStart).padding(bottom = 112.dp).fillMaxWidth()
             .background(Brush.verticalGradient(listOf(Color.Transparent, Clay.Cream)))
             .horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            listOf("Where can I save?","Explain my score","June forecast").forEachIndexed { i, label ->
+            (chat?.suggestions ?: listOf("Where can I save?","Explain my score","June forecast")).forEachIndexed { i, label ->
                 NativeText(label, 7.sp, Color(0xFF766B95), modifier = Modifier.background(Color(0xFFF7F3FB), CircleShape)
                     .border(1.dp, Color(0xFFD8D0E6), CircleShape).clickable {
-                        when (i) { 1 -> navigate(Screen.Health); 2 -> navigate(Screen.Forecast); else -> message = label }
+                        if (chat != null) send(label)
+                        else when (i) { 1 -> navigate(Screen.Health); 2 -> navigate(Screen.Forecast); else -> message = label }
                     }.padding(horizontal = 10.dp, vertical = 7.dp))
             }
         }
@@ -227,14 +248,16 @@ internal fun ChatScreen(menu: () -> Unit, back: () -> Unit, navigate: (Screen) -
             .fillMaxWidth().height(48.dp).claySurface(CircleShape, Color(0xFFF5F1EC), ClayShadow.Raised).padding(5.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(37.dp).clickable { navigate(Screen.Entry) }, contentAlignment = Alignment.Center) { NativeIcon(R.drawable.ic_pingpaisa_plus) }
-            BasicTextField(message, { message = it }, Modifier.weight(1f),
+            BasicTextField(message, { message = it.take(300) }, Modifier.weight(1f), singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Send),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onSend = { send(message) }),
                 textStyle = TextStyle(fontFamily = PingPaisaFont, fontSize = 8.sp, color = Clay.Ink, lineHeight = 12.sp),
                 decorationBox = { inner ->
                     if (message.isEmpty()) NativeText("Ask about your money…", 8.sp, Color(0xFFA2A29F))
                     inner()
                 })
             Box(Modifier.size(37.dp).background(Color(0xFF789F91), CircleShape)
-                .clickable(onClickLabel = "Send message") { if (message.isNotBlank()) { sent = sent + message; message = "" } },
+                .clickable(onClickLabel = "Send message") { send(message) },
                 contentAlignment = Alignment.Center) { NativeText("↑", 16.sp, Color.White) }
         }
     }
@@ -267,43 +290,97 @@ private fun ColumnScope.ChatBubble(text: String, user: Boolean = false, rich: Bo
     }
 }
 
+/** A Paisa AI answer in the design's bubble: bold title, text, an optional figure with a verdict chip, an optional link. */
 @Composable
-internal fun ForecastScreen(menu: () -> Unit, back: () -> Unit) {
+private fun ColumnScope.ReplyBubble(reply: AiReply, time: String, navigate: (Screen) -> Unit) {
+    Box(Modifier.fillMaxWidth(.84f).align(Alignment.Start).riseIn(150, 10f)) {
+        Row(Modifier.fillMaxWidth().claySurface(
+            RoundedCornerShape(topStart = 19.dp, topEnd = 19.dp, bottomStart = 7.dp, bottomEnd = 19.dp), Color(0xFFF9F6FB))
+            .padding(start = 12.dp, end = 12.dp, top = 11.dp, bottom = 13.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            NativeIcon(if (reply.metric != null) R.drawable.ic_pingpaisa_brain else R.drawable.ic_pingpaisa_sparkle,
+                if (reply.metric != null) 15.dp else 14.dp, Color(0xFF8074A8))
+            Column(Modifier.weight(1f)) {
+                reply.title?.let { NativeText(it, 9.sp, weight = FontWeight.Bold, lineHeight = 13.95.sp) }
+                NativeText(reply.text, 9.sp, lineHeight = 13.95.sp)
+                reply.metric?.let { m ->
+                    Row(Modifier.padding(top = 14.dp).fillMaxWidth().background(Color(0xFFEEEAF6), RoundedCornerShape(13.dp)).padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) { NativeText(m.label, 6.sp); NativeText(m.value, 13.sp, weight = FontWeight.Bold, maxLines = 1) }
+                        m.verdict?.let { v ->
+                            val (label, ink, fill) = when (v) {
+                                com.pingpaisa.app.healthscore.VerdictEngine.Verdict.SAFE -> Triple("Safe", Color(0xFF668572), Color(0xFFDCE9D8))
+                                com.pingpaisa.app.healthscore.VerdictEngine.Verdict.TIGHT -> Triple("Tight", Color(0xFFA37452), Color(0xFFF7E8D9))
+                                com.pingpaisa.app.healthscore.VerdictEngine.Verdict.RISKY -> Triple("Risky", Color(0xFF9E6868), Color(0xFFF6D8D8))
+                            }
+                            NativeText(label, 7.sp, ink, modifier = Modifier.background(fill, CircleShape).padding(horizontal = 7.dp, vertical = 4.dp))
+                        }
+                    }
+                }
+                reply.link?.let { link ->
+                    NativeText("${link.label} →", 8.sp, Color(0xFF766B95), FontWeight.ExtraBold,
+                        Modifier.padding(top = 9.dp).clip(CircleShape).clickable { navigate(link.screen) }.padding(vertical = 3.dp))
+                }
+            }
+        }
+        NativeText(time, 5.sp, Color(0xFFAAAAAA), modifier = Modifier.align(Alignment.BottomEnd).offset(x = (-8).dp, y = 12.dp))
+    }
+}
+
+@Composable
+/**
+ * [ui] defaults to the design sample (previews, screenshot tests). The real one comes from
+ * ForecastUi.from; its chart redraws the design's spend_trajectory artwork with real paths.
+ */
+internal fun ForecastScreen(menu: () -> Unit, back: () -> Unit, ui: ForecastUi = ForecastUi.Sample, onAlert: () -> Unit = {}) {
     ScreenScroll(padded = false) {
         Column(verticalArrangement = Arrangement.spacedBy((-11).dp)) {
             Column(Modifier.fillMaxWidth().heightIn(min = 145.dp).claySurface(
                 RoundedCornerShape(bottomStart = 43.dp, bottomEnd = 43.dp), shadow = ClayShadow.None,
                 gradient = Color(0xFFE5E0F3) to Color(0xFFC9C0E8)).padding(horizontal = 20.dp, vertical = 10.dp)) {
-                NativeHeader("June forecast", "SMART PREDICTIONS", menu, back, action = { ClayBadge(R.drawable.ic_pingpaisa_sparkle, Tone.Cream) })
-                NativeText("Powered by your last 6 months of spending", 8.sp, Color(0xFF746E85), modifier = Modifier.padding(top = 4.dp))
+                NativeHeader(ui.title, "SMART PREDICTIONS", menu, back, action = { ClayBadge(R.drawable.ic_pingpaisa_sparkle, Tone.Cream) })
+                NativeText(ui.subtitle, 8.sp, Color(0xFF746E85), modifier = Modifier.padding(top = 4.dp))
             }
             Column(Modifier.padding(horizontal = 20.dp)) {
                 Column(Modifier.fillMaxWidth().claySurface(RoundedCornerShape(26.dp), Color(0xFFFAF8FC), ClayShadow.Raised).padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         ClayBadge(R.drawable.ic_pingpaisa_brain, Tone.Lavender)
                         Column { NativeText("AI INSIGHT", 7.sp, Color(0xFF8B82A2), tracking = .84.sp)
-                            NativeText("You’re on track", 10.sp, weight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp)) }
+                            NativeText(ui.verdict, 10.sp, weight = FontWeight.Bold, modifier = Modifier.padding(top = 2.dp)) }
                     }
-                    NativeText("₹54,200", 29.sp, tracking = (-1.45).sp, modifier = Modifier.padding(top = 13.dp))
-                    NativeText("Projected total spend by 30 June", 8.sp, Color(0xFF949095), modifier = Modifier.padding(top = 1.dp, bottom = 12.dp))
+                    NativeText(ui.projected, 29.sp, tracking = (-1.45).sp, modifier = Modifier.padding(top = 13.dp), maxLines = 1)
+                    NativeText(ui.projectedCaption, 8.sp, Color(0xFF949095), modifier = Modifier.padding(top = 1.dp, bottom = 12.dp))
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        MiniProgress(.92f, Color(0xFF9589C3), Modifier.weight(1f), 5.dp)
-                        NativeText("92% confidence", 7.sp, Color(0xFF77717F))
+                        MiniProgress(ui.confidence, Color(0xFF9589C3), Modifier.weight(1f), 5.dp)
+                        NativeText(ui.confidenceText, 7.sp, Color(0xFF77717F))
                     }
                 }
                 Spacer(Modifier.height(13.dp))
                 Column(Modifier.fillMaxWidth().heightIn(min = 245.dp).claySurface(RoundedCornerShape(26.dp), shadow = ClayShadow.Raised).padding(14.dp)) {
-                    Row { NativeText("Spend trajectory", 15.sp, tracking = (-.375).sp, modifier = Modifier.weight(1f)); NativeText("₹60K", 10.sp, Color(0xFF719487), FontWeight.ExtraBold) }
-                    SvgArtwork("spend_trajectory", Modifier.fillMaxWidth().height(155.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { listOf("1 Jun","Today","30 Jun").forEach { NativeText(it, 7.sp, Color(0xFF9A9B98)) } }
+                    Row { NativeText("Spend trajectory", 15.sp, tracking = (-.375).sp, modifier = Modifier.weight(1f)); NativeText(ui.scaleMax, 10.sp, Color(0xFF719487), FontWeight.ExtraBold) }
+                    SvgArtwork("spend_trajectory", Modifier.fillMaxWidth().height(155.dp), key = ui.actualPath + ui.projectionPath) { doc ->
+                        if (ui.actualPath != null) {
+                            val paths = doc.getElementsByTagName("path")
+                            listOf(ui.actualPath, ui.projectionPath, ui.fillPath).forEachIndexed { i, d ->
+                                if (d != null) (paths.item(i) as org.w3c.dom.Element).setAttribute("d", d)
+                            }
+                            (doc.getElementsByTagName("circle").item(0) as org.w3c.dom.Element).apply {
+                                setAttribute("cx", ui.todayX.toString()); setAttribute("cy", ui.todayY.toString())
+                            }
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { ui.axis.forEach { NativeText(it, 7.sp, Color(0xFF9A9B98)) } }
                 }
+                ui.alert?.let { alert ->
                 Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth().claySurface(RoundedCornerShape(20.dp), Color(0xFFF8E2E0)).padding(11.dp),
+                Row(Modifier.fillMaxWidth().claySurface(RoundedCornerShape(20.dp), Color(0xFFF8E2E0))
+                    .then(if (alert.opensBudgets) Modifier.clickable(onClickLabel = "Open budgets", onClick = onAlert) else Modifier).padding(11.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     ClayBadge(R.drawable.ic_pingpaisa_sparkle, Tone.Pink)
-                    Column(Modifier.weight(1f)) { NativeText("Dining spike detected", 9.sp, weight = FontWeight.Bold)
-                        NativeText("Food spend may cross budget by ₹2,100.", 7.sp, Color(0xFF917C79), modifier = Modifier.padding(top = 3.dp)) }
-                    NativeIcon(R.drawable.ic_pingpaisa_chevron, 18.dp, Color(0xFF9D8581))
+                    Column(Modifier.weight(1f)) { NativeText(alert.title, 9.sp, weight = FontWeight.Bold)
+                        NativeText(alert.text, 7.sp, Color(0xFF917C79), modifier = Modifier.padding(top = 3.dp)) }
+                    if (alert.opensBudgets || ui.actualPath == null) NativeIcon(R.drawable.ic_pingpaisa_chevron, 18.dp, Color(0xFF9D8581))
+                }
                 }
             }
         }
@@ -311,34 +388,36 @@ internal fun ForecastScreen(menu: () -> Unit, back: () -> Unit) {
 }
 
 @Composable
-internal fun HeatmapScreen(menu: () -> Unit, back: () -> Unit) {
-    var month by rememberSaveable { mutableStateOf("June") }
-    var selected by rememberSaveable { mutableIntStateOf(17) }
-    val levels = listOf(0,1,0,2,0,3,1,0,2,4,3,0,1,2,0,1,3,4,2,0,0,1,2,3,4,1,0,2,3,1,2,0,4,3,1)
+internal fun HeatmapScreen(menu: () -> Unit, back: () -> Unit, ui: HeatmapUi = HeatmapUi.Sample) {
+    var tab by rememberSaveable { mutableIntStateOf(ui.months.lastIndex) }
+    val data = ui.months[tab.coerceIn(0, ui.months.lastIndex)]
+    var chosen by rememberSaveable(tab) { mutableStateOf<Int?>(null) }   // null: the month's default square
+    val selected = chosen ?: data.defaultSelected
+    val cell = data.cells.getOrNull(selected)
     val colors = listOf(Color(0xFFEFEDE8),Color(0xFFD9E5D5),Clay.Sage,Color(0xFFEFC5A9),Color(0xFFE9948F))
     ScreenScroll {
         NativeHeader("Your money map", "SPENDING RHYTHM", menu, back, action = { RoundAction(R.drawable.ic_pingpaisa_calendar, "Calendar") {} })
         Spacer(Modifier.height(18.dp))
-        SegmentedTabs(listOf("April","May","June"), month, { month = it })
+        SegmentedTabs(ui.months.map { it.tab }, data.tab, { name -> tab = ui.months.indexOfFirst { it.tab == name } })
         Spacer(Modifier.height(17.dp))
         Column(Modifier.fillMaxWidth().claySurface(RoundedCornerShape(27.dp), shadow = ClayShadow.Raised).padding(18.dp)) {
             Row(Modifier.fillMaxWidth().padding(bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { NativeText("$month activity", 7.sp, Color(0xFF999999)); NativeText("₹42,680", 17.sp, weight = FontWeight.Bold) }
-                NativeText("23 active days", 7.sp, Color(0xFF658274), FontWeight.ExtraBold,
+                Column(Modifier.weight(1f)) { NativeText("${data.tab} activity", 7.sp, Color(0xFF999999)); NativeText(data.total, 17.sp, weight = FontWeight.Bold, maxLines = 1) }
+                NativeText(data.activeDays, 7.sp, Color(0xFF658274), FontWeight.ExtraBold,
                     Modifier.background(Color(0xFFE7EEE4), CircleShape).padding(horizontal = 8.dp, vertical = 6.dp))
             }
             Row(Modifier.fillMaxWidth().padding(bottom = 3.dp), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 listOf("M","T","W","T","F","S","S").forEach { NativeText(it, 7.sp, Color(0xFFA0A19E), modifier = Modifier.weight(1f), align = androidx.compose.ui.text.style.TextAlign.Center) }
             }
             Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                levels.chunked(7).forEachIndexed { week, row ->
+                data.cells.chunked(7).forEachIndexed { week, row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                        row.forEachIndexed { day, level ->
+                        row.forEachIndexed { day, square ->
                             val index = week * 7 + day
-                            Box(Modifier.weight(1f).aspectRatio(1f).background(colors[level], RoundedCornerShape(9.dp))
+                            Box(Modifier.weight(1f).aspectRatio(1f).background(colors[square.level], RoundedCornerShape(9.dp))
                                 .then(if (selected == index) Modifier.border(2.dp, Color.White, RoundedCornerShape(9.dp)) else Modifier)
-                                .clickable { selected = index }, contentAlignment = Alignment.Center) {
-                                NativeText(if (index < 2) "" else "${index - 1}", 7.sp, Color(0xFF59665F))
+                                .then(if (square.day == null) Modifier else Modifier.clickable { chosen = index }), contentAlignment = Alignment.Center) {
+                                NativeText(square.day?.toString() ?: "", 7.sp, Color(0xFF59665F))
                             }
                         }
                     }
@@ -356,15 +435,15 @@ internal fun HeatmapScreen(menu: () -> Unit, back: () -> Unit) {
             gradient = Color(0xFFF5D6D1) to Color(0xFFF0C5C2)).padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                NativeText(if (selected == 17) "WED, 18 JUNE" else "${selected + 1} ${month.uppercase()}", 7.sp, Color(0xFF967572), tracking = .7.sp)
-                NativeText(if (selected == 17) "Highest spend day" else "Daily spending", 10.sp, weight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
+                NativeText(cell?.label ?: "", 7.sp, Color(0xFF967572), tracking = .7.sp)
+                NativeText(cell?.title ?: "", 10.sp, weight = FontWeight.Bold, modifier = Modifier.padding(top = 4.dp))
             }
-            NativeText("₹6,840", 16.sp)
+            NativeText(cell?.amount ?: "", 16.sp, maxLines = 1)
         }
         Row(Modifier.padding(top = 13.dp).padding(11.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             ClayBadge(R.drawable.ic_pingpaisa_sparkle, Tone.Lavender)
-            NativeText("You spend 22% more on weekends, mostly on dining and travel.", 8.sp, Color(0xFF747B77))
+            NativeText(data.insight, 8.sp, Color(0xFF747B77))
         }
     }
 }

@@ -151,6 +151,16 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     val selectedTransactionId: StateFlow<Int?> = _selectedTransactionId.asStateFlow()
     fun openTransaction(id: Int) { _selectedTransactionId.value = id }
 
+    // --------------------------------------------------------------- Paisa AI
+
+    /** The Paisa AI conversation. Memory only: it starts fresh every time the app starts. */
+    private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
+    internal val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
+
+    internal fun addChat(question: String, reply: AiReply, time: String) {
+        _chat.value = _chat.value + ChatMessage(true, question.trim(), null, time) + ChatMessage(false, "", reply, time)
+    }
+
     // ----------------------------------------------------------------- actions
 
     private fun launch(block: suspend () -> Unit) {
@@ -188,7 +198,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     fun setBudget(category: String, monthlyLimit: Double) = launch { repo.setBudget(category, monthlyLimit) }
     fun deleteBudget(budget: Budget) = launch { repo.deleteBudget(budget) }
 
-    fun addSavingsGoal(name: String, target: Double) = launch { repo.addSavingsGoal(name, target) }
+    fun addSavingsGoal(name: String, target: Double, saved: Double = 0.0) = launch { repo.addSavingsGoal(name, target, saved) }
     fun updateSavingsGoal(goal: SavingsGoal) = launch { repo.updateSavingsGoal(goal) }
     fun deleteSavingsGoal(goal: SavingsGoal) = launch { repo.deleteSavingsGoal(goal) }
 

@@ -258,10 +258,55 @@ internal fun NativeScreen(
                 if (isIncome) model.addIncome(amount, name) else model.addExpense(amount, name, category)
             }
         })
-        Screen.Budgets -> BudgetsScreen(menu, back)
-        Screen.Flow -> FlowScreen(menu, back)
-        Screen.Forecast -> ForecastScreen(menu, back)
-        Screen.Heatmap -> HeatmapScreen(menu, back)
+        Screen.Budgets -> if (vm == null) BudgetsScreen(menu, back) else {
+            val budgets by vm.budgets.collectAsStateWithLifecycle()
+            val all by vm.transactions.collectAsStateWithLifecycle()
+            val choices by vm.categoryChoices.collectAsStateWithLifecycle()
+            val savingsGoals by vm.savingsGoals.collectAsStateWithLifecycle()
+            val ui = remember(budgets, all) { BudgetsUi.from(budgets, all, LocalDate.now()) }
+            val goalRows = remember(savingsGoals) { GoalsUi.from(savingsGoals) }
+            BudgetsScreen(menu, back, ui, choices,
+                goals = goalRows,
+                onSaveGoal = { id, name, target, saved ->
+                    val existing = savingsGoals.firstOrNull { it.id == id }
+                    if (existing == null) vm.addSavingsGoal(name, target, saved)
+                    else vm.updateSavingsGoal(existing.copy(name = name, targetAmount = target, savedAmount = saved))
+                },
+                onDeleteGoal = { id -> savingsGoals.firstOrNull { it.id == id }?.let(vm::deleteSavingsGoal) },
+                onSave = { category, limit -> vm.setBudget(category, limit) },
+                onDelete = { category -> budgets.firstOrNull { it.category == category }?.let(vm::deleteBudget) })
+        }
+        Screen.Flow -> if (vm == null) FlowScreen(menu, back) else {
+            val health by vm.health.collectAsStateWithLifecycle()
+            val all by vm.transactions.collectAsStateWithLifecycle()
+            val account by vm.account.collectAsStateWithLifecycle()
+            val current = health
+            if (current == null) Box(Modifier.fillMaxSize())   // still loading
+            else {
+                val salary = (account as? AccountState.Ready)?.profile?.monthlySalary ?: 0.0
+                val ui = remember(all, current, account) { CashFlowUi.from(all, salary, current.raw.expense, LocalDate.now()) }
+                FlowScreen(menu, back, ui)
+            }
+        }
+        Screen.Forecast -> if (vm == null) ForecastScreen(menu, back) else {
+            val health by vm.health.collectAsStateWithLifecycle()
+            val all by vm.transactions.collectAsStateWithLifecycle()
+            val items by vm.recurringItems.collectAsStateWithLifecycle()
+            val budgets by vm.budgets.collectAsStateWithLifecycle()
+            val current = health
+            if (current == null) Box(Modifier.fillMaxSize())   // still loading
+            else {
+                val ui = remember(all, items, budgets, current) {
+                    ForecastUi.from(all, items, current.raw.expense, current.monthlyIncome, budgets, LocalDate.now())
+                }
+                ForecastScreen(menu, back, ui, onAlert = { navigate(Screen.Budgets) })
+            }
+        }
+        Screen.Heatmap -> if (vm == null) HeatmapScreen(menu, back) else {
+            val all by vm.transactions.collectAsStateWithLifecycle()
+            val ui = remember(all) { HeatmapUi.from(all, LocalDate.now()) }
+            HeatmapScreen(menu, back, ui)
+        }
         Screen.Recurring -> if (vm == null) RecurringScreen(menu, back) else {
             val items by vm.recurringItems.collectAsStateWithLifecycle()
             val detected by vm.detectedRecurring.collectAsStateWithLifecycle()
@@ -272,7 +317,34 @@ internal fun NativeScreen(
                 onDelete = { id -> items.firstOrNull { it.id == id }?.let(vm::deleteRecurring) })
         }
         Screen.Scan -> ScanScreen(menu, back)
-        Screen.Chat -> ChatScreen(menu, back, navigate)
+        Screen.Chat -> if (vm == null) ChatScreen(menu, back, navigate) else {
+            val health by vm.health.collectAsStateWithLifecycle()
+            val all by vm.transactions.collectAsStateWithLifecycle()
+            val items by vm.recurringItems.collectAsStateWithLifecycle()
+            val budgets by vm.budgets.collectAsStateWithLifecycle()
+            val goals by vm.savingsGoals.collectAsStateWithLifecycle()
+            val account by vm.account.collectAsStateWithLifecycle()
+            val messages by vm.chat.collectAsStateWithLifecycle()
+            val today = LocalDate.now()
+            val monthName = today.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
+            val name = (account as? AccountState.Ready)?.profile?.name.orEmpty()
+            val context = remember(health, all, items, budgets, goals, name) {
+                health?.let { h ->
+                    AiContext(name, today, h.monthlyIncome, h.raw.expense,
+                        ForecastUi.from(all, items, h.raw.expense, h.monthlyIncome, budgets, today).projectedAmount,
+                        h.result.score, when (h.result.risk) {
+                            com.pingpaisa.app.healthscore.ScoreCalculator.RiskLevel.LOW -> "low risk"
+                            com.pingpaisa.app.healthscore.ScoreCalculator.RiskLevel.MEDIUM -> "medium risk"
+                            com.pingpaisa.app.healthscore.ScoreCalculator.RiskLevel.HIGH -> "high risk"
+                        }, h.insight.text, all, budgets, goals, items)
+                }
+            }
+            ChatScreen(menu, back, navigate, ChatState(PaisaAi.greeting(name, monthName), messages, PaisaAi.suggestions(monthName)) { q ->
+                val time = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.getDefault()))
+                val reply = context?.let { PaisaAi.answer(q, it) } ?: AiReply("One moment.", "I’m still loading your numbers. Ask again in a second.")
+                vm.addChat(q, reply, time)
+            })
+        }
         Screen.Health -> if (vm == null) HealthScreen(menu, back) else {
             val health by vm.health.collectAsStateWithLifecycle()
             val history by vm.scoreHistory.collectAsStateWithLifecycle()

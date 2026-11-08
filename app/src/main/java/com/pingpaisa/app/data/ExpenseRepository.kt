@@ -129,7 +129,8 @@ class ExpenseRepository(private val db: AppDatabase) {
     suspend fun setBudget(category: String, monthlyLimit: Double) = budgets.upsert(Budget(category, monthlyLimit))
     suspend fun deleteBudget(budget: Budget) = budgets.delete(budget)
 
-    suspend fun addSavingsGoal(name: String, target: Double) = goals.insert(SavingsGoal(name = name.trim(), targetAmount = target))
+    suspend fun addSavingsGoal(name: String, target: Double, saved: Double = 0.0) =
+        goals.insert(SavingsGoal(name = name.trim(), targetAmount = target, savedAmount = saved))
     suspend fun updateSavingsGoal(goal: SavingsGoal) = goals.update(goal)
     suspend fun deleteSavingsGoal(goal: SavingsGoal) = goals.delete(goal)
 
