@@ -147,8 +147,6 @@ internal fun SettingsScreen(
                 }
                 NativeText("Your money data stays on your phone", 12.sp, modifier = Modifier.padding(vertical = 3.dp))
                 NativeText("Your transaction data never leaves this phone. Not even we can see it.", 7.sp, Color(0xFF718078))
-                NativeText("Read our privacy story →", 7.sp, Color(0xFF608275), FontWeight.ExtraBold,
-                    Modifier.clickable { dialog = "Privacy promise" }.padding(top = 7.dp))
             }
         }
         NativeText("PingPaisa v1.0 • Made with care in India", 6.sp, Color(0xFFAAAAAA),

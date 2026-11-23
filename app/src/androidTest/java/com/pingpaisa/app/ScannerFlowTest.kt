@@ -37,7 +37,7 @@ class ScannerFlowTest {
             scanner = ViewModelProvider(compose.activity)[ScanViewModel::class.java]
             scanner.clearAll()
             (compose.activity.application as PingPaisaApp).profileStore.clear()
-            compose.activity.setContent { PingPaisa(Screen.Home, scanner, compose.activity.shareVersion) }
+            compose.activity.setContent { PingPaisa(Screen.Home, scanner = scanner, shareVersion = compose.activity.shareVersion) }
         }
     }
 

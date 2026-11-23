@@ -1,7 +1,8 @@
 package com.pingpaisa.app.data
 
-import java.text.SimpleDateFormat
-import java.util.*
+import com.pingpaisa.app.HomeSummary
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
 data class DetectedRecurring(
@@ -13,11 +14,9 @@ data class DetectedRecurring(
 
 object RecurringDetector {
 
-    private val dateFormat = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
-
-    private fun parseDate(dateStr: String): Date? {
-        return try { dateFormat.parse(dateStr) } catch (e: Exception) { null }
-    }
+    // The app's one strict date reader (dd/MM/yy; impossible dates such as 31/02 are rejected).
+    // Replaces a shared SimpleDateFormat, which is not thread-safe and accepted 31/02 as 3 March.
+    private fun parseDate(dateStr: String): LocalDate? = HomeSummary.parseDate(dateStr)
 
     fun detect(transactions: List<Transaction>): List<DetectedRecurring> {
         val results = mutableListOf<DetectedRecurring>()
@@ -28,7 +27,7 @@ object RecurringDetector {
         for ((_, txns) in grouped) {
             if (txns.size < 2) continue // need at least 2 payments to detect a pattern
 
-            val sorted = txns.sortedBy { parseDate(it.date)?.time ?: 0L }
+            val sorted = txns.sortedBy { parseDate(it.date) ?: LocalDate.MIN }
             val amounts = sorted.map { it.amount }
             val avgAmount = amounts.average()
 
@@ -42,8 +41,8 @@ object RecurringDetector {
                 val d1 = parseDate(sorted[i - 1].date)
                 val d2 = parseDate(sorted[i].date)
                 if (d1 != null && d2 != null) {
-                    val gapDays = abs(d2.time - d1.time) / (1000 * 60 * 60 * 24)
-                    if (gapDays in 25..35) monthlyGapsFound++
+                    val gapDays = abs(ChronoUnit.DAYS.between(d1, d2))
+                    if (gapDays in 25L..35L) monthlyGapsFound++
                 }
             }
 
