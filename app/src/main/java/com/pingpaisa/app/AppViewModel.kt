@@ -44,6 +44,9 @@ sealed interface AccountState {
 /** Outcome of a password check on the login screen. */
 enum class LoginResult { Success, WrongPassword, NoAccount }
 
+/** Outcome of Settings → Change password. */
+enum class ChangePasswordResult { Changed, WrongCurrent, NoAccount }
+
 /** Everything the Financial health, Loan and Home screens need about this month. */
 data class HealthState(
     val monthlyIncome: Double,        // salary + extra income received this month
@@ -174,6 +177,12 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     fun recategorize(recipient: String, category: String) = launch { repo.recategorize(recipient, category) }
 
+    // Settings → Merchants and Categories (step 54). [key] is the remembered merchant's lowercase name.
+    fun recategorizeMerchant(key: String, category: String) = launch { repo.recategorizeMerchant(key, category) }
+    fun forgetMerchant(key: String) = launch { repo.forgetMerchant(key) }
+    fun renameCategory(old: String, new: String) = launch { repo.renameCategory(old, new.trim()) }
+    fun removeCategory(category: String) = launch { repo.removeCategory(category) }
+
     /**
      * "Save changes" on the Detail screen. A new [category] is remembered for the merchant and
      * applied to all its payments (tracker behaviour); the note belongs to this transaction only.
@@ -244,6 +253,72 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
             }
             if (ok) _unlocked.value = true
             onResult(if (ok) LoginResult.Success else LoginResult.WrongPassword)
+        }
+    }
+
+    /** Settings → Log out: locks now, so the login screen shows (only offered while the app lock is on). */
+    fun lockNow() { _unlocked.value = false }
+
+    /** Checks [password] against the stored hash off the UI thread (Settings → Reset all data). Wipes it afterwards. */
+    fun checkPassword(password: String, onResult: (ok: Boolean) -> Unit) {
+        viewModelScope.launch {
+            val profile = repo.getProfile()
+            val chars = password.toCharArray()
+            val ok = try {
+                profile != null && withContext(Dispatchers.Default) { PasswordHasher.verify(chars, profile.passwordHash, profile.passwordSalt) }
+            } finally {
+                chars.fill('\u0000')
+            }
+            onResult(ok)
+        }
+    }
+
+    /** Settings → App lock on. Turning it off goes through [disableAppLock], which needs the password. */
+    fun enableAppLock() = launch { repo.setAppLock(true) }
+
+    /**
+     * Settings → App lock off, only after [password] matches the stored hash (checked off the UI
+     * thread, then wiped), so someone holding the unlocked phone can't quietly switch the lock off.
+     */
+    fun disableAppLock(password: String, onResult: (ok: Boolean) -> Unit) {
+        viewModelScope.launch {
+            val profile = repo.getProfile()
+            val chars = password.toCharArray()
+            val ok = try {
+                profile != null && withContext(Dispatchers.Default) { PasswordHasher.verify(chars, profile.passwordHash, profile.passwordSalt) }
+            } finally {
+                chars.fill('\u0000')
+            }
+            if (ok) repo.setAppLock(false)
+            onResult(ok)
+        }
+    }
+
+    /** Settings → Edit profile. Everything that uses the salary (Home, health score, forecast, Paisa AI…) updates by itself. */
+    fun updateProfile(name: String, salary: Double) = launch { repo.updateNameAndSalary(name, salary) }
+
+    /**
+     * Settings → Change password: checks [current] against the stored hash, then stores a new salted
+     * hash of [new]. Both run off the UI thread and both passwords are wiped afterwards.
+     */
+    fun changePassword(current: String, new: String, onResult: (ChangePasswordResult) -> Unit) {
+        viewModelScope.launch {
+            val profile = repo.getProfile()
+            if (profile == null) { onResult(ChangePasswordResult.NoAccount); return@launch }
+            val currentChars = current.toCharArray()
+            val newChars = new.toCharArray()
+            val result = try {
+                val ok = withContext(Dispatchers.Default) { PasswordHasher.verify(currentChars, profile.passwordHash, profile.passwordSalt) }
+                if (!ok) ChangePasswordResult.WrongCurrent
+                else {
+                    repo.updatePassword(withContext(Dispatchers.Default) { PasswordHasher.hash(newChars) })
+                    ChangePasswordResult.Changed
+                }
+            } finally {
+                currentChars.fill('\u0000')
+                newChars.fill('\u0000')
+            }
+            onResult(result)
         }
     }
 

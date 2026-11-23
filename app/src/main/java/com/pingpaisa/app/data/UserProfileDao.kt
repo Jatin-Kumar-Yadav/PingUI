@@ -35,6 +35,10 @@ interface UserProfileDao {
     @Query("UPDATE user_profile SET name = :name, monthlySalary = :salary WHERE id = ${UserProfile.SINGLE_USER_ID}")
     suspend fun updateNameAndSalary(name: String, salary: Double)
 
+    /** Settings → Change password: the new salted hash (see PasswordHasher). No schema change. */
+    @Query("UPDATE user_profile SET passwordHash = :hash, passwordSalt = :salt WHERE id = ${UserProfile.SINGLE_USER_ID}")
+    suspend fun updatePassword(hash: String, salt: String)
+
     @Query("UPDATE user_profile SET appLockEnabled = :enabled WHERE id = ${UserProfile.SINGLE_USER_ID}")
     suspend fun setAppLock(enabled: Boolean)
 

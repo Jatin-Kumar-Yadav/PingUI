@@ -73,7 +73,7 @@ internal enum class Screen(val title: String, val group: String) {
     Detail("Transaction detail", "Money"), Entry("Add an expense", "Money"),
     Budgets("Budgets & goals", "Planning"), Flow("Cash flow", "Planning"),
     Recurring("Recurring payments", "Planning"), Loan("Loan simulator", "Planning"),
-    Forecast("June forecast", "Intelligence"), Heatmap("Your money map", "Intelligence"),
+    Forecast("Forecast", "Intelligence"), Heatmap("Your money map", "Intelligence"),
     Scan("Scan price", "Intelligence"), Chat("Paisa AI", "Intelligence"),
     Health("Financial health", "Intelligence"), Settings("Settings", "Settings"),
     Style("Style Guide", "Settings"), FinancialProfile("Financial profile", "Settings")
@@ -407,7 +407,40 @@ internal fun NativeScreen(
             val baseline = health?.raw
             if (baseline == null) Box(Modifier.fillMaxSize()) else LoanScreen(menu, back, baseline)
         }
-        Screen.Settings -> SettingsScreen(menu, navigate)
+        Screen.Settings -> if (vm == null) SettingsScreen(menu, navigate) else {
+            val account by vm.account.collectAsStateWithLifecycle()
+            val profile = (account as? AccountState.Ready)?.profile
+            val all by vm.transactions.collectAsStateWithLifecycle()
+            val overrides by vm.merchantOverrides.collectAsStateWithLifecycle()
+            val choices by vm.categoryChoices.collectAsStateWithLifecycle()
+            // Notification access is switched in Android's settings, so it is re-checked whenever the app comes back.
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var capture by remember { mutableStateOf(isNotificationAccessEnabled(context)) }
+            androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                capture = isNotificationAccessEnabled(context)
+            }
+            SettingsScreen(menu, navigate, profile?.let { SettingsAccount(it.name, it.monthlySalary) },
+                onSaveProfile = { name, salary -> vm.updateProfile(name, salary) },
+                onChangePassword = { current, new, result -> vm.changePassword(current, new, result) },
+                captureEnabled = capture, onOpenCapture = { openNotificationAccessSettings(context) },
+                lockEnabled = profile?.appLockEnabled,
+                onEnableLock = { vm.enableAppLock() },
+                onDisableLock = { password, result -> vm.disableAppLock(password, result) },
+                merchants = ManageUi.merchants(overrides, all),
+                categories = remember(all, overrides) { ManageUi.categories(all, overrides, Categorizer.getAllCategories()) },
+                categoryChoices = choices,
+                onRecategorizeMerchant = { key, category -> vm.recategorizeMerchant(key, category) },
+                onForgetMerchant = { key -> vm.forgetMerchant(key) },
+                onRenameCategory = { old, new -> vm.renameCategory(old, new) },
+                onRemoveCategory = { name -> vm.removeCategory(name) },
+                transactionCount = all.size,
+                onExport = { CsvExport.share(context, all) },
+                onLogOut = if (profile?.appLockEnabled == true) ({ vm.lockNow() }) else null,
+                onCheckPassword = { password, result -> vm.checkPassword(password, result) },
+                // Android's own "Clear data": wipes the database, preferences, files and cache (the scanner's
+                // too) and closes the app; the next start is a fresh sign-up.
+                onReset = { context.getSystemService(android.app.ActivityManager::class.java).clearApplicationUserData() })
+        }
         Screen.Onboarding -> OnboardingScreen(menu) { navigate(Screen.SignUp) }
         // First run: Onboarding → Sign up → Notification access → Home. Setup screens are
         // dropped from the back history so Back from Home can't return to them.

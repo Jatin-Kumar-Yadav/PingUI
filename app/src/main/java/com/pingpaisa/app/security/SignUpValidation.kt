@@ -46,4 +46,20 @@ object SignUpValidation {
 
     fun validateConfirm(password: String, confirm: String): String? =
         if (confirm != password) "Passwords don't match" else null
+
+    /** Settings → Edit profile: the same name and salary rules as sign-up. */
+    fun validateProfile(name: String, salary: String): SignUpErrors =
+        SignUpErrors(name = validateName(name), salary = validateSalary(salary))
+
+    /** Settings → Change password. The current password is checked against the stored hash separately. */
+    fun validatePasswordChange(current: String, new: String, confirm: String): PasswordChangeErrors = PasswordChangeErrors(
+        current = if (current.isEmpty()) "Enter your current password" else null,
+        new = validatePassword(new) ?: if (current.isNotEmpty() && new == current) "Choose a password different from the current one" else null,
+        confirm = validateConfirm(new, confirm)
+    )
+}
+
+/** One message per field of the change-password sheet; null means that field is fine. */
+data class PasswordChangeErrors(val current: String? = null, val new: String? = null, val confirm: String? = null) {
+    val isValid: Boolean get() = current == null && new == null && confirm == null
 }

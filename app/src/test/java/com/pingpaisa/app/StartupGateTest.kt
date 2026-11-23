@@ -46,12 +46,12 @@ class StartupGateTest {
     }
 
     @Test fun drawerHidesSetupLoginAndStyleButKeepsTheRealScreens() {
-        for (hidden in listOf(Screen.Onboarding, Screen.SignUp, Screen.Lock, Screen.Style))
+        // Notification access is hidden too: Settings → Payment capture replaces it (step 52).
+        for (hidden in listOf(Screen.Onboarding, Screen.SignUp, Screen.NotificationAccess, Screen.Lock, Screen.Style))
             assertTrue("$hidden should be hidden", hidden in drawerHiddenScreens)
         val visible = Screen.entries.filter { it !in drawerHiddenScreens }
         assertTrue(Screen.Home in visible && Screen.Transactions in visible && Screen.Settings in visible)
-        assertTrue(Screen.NotificationAccess in visible)   // until Settings has its own row
-        assertEquals(Screen.entries.size - 4, visible.size)
+        assertEquals(Screen.entries.size - 5, visible.size)
     }
 
     @Test fun noMenuButtonBeforeSignIn() {

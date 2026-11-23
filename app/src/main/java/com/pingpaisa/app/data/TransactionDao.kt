@@ -26,6 +26,14 @@ interface TransactionDao {
     @Query("UPDATE transactions SET category = :category, subcategory = 'Miscellaneous' WHERE recipient = :recipient")
     suspend fun updateCategoryForRecipient(recipient: String, category: String)
 
+    /** Settings → Merchants: every expense to this merchant, whatever its spelling case ([key] is lowercase, trimmed). */
+    @Query("UPDATE transactions SET category = :category, subcategory = 'Miscellaneous' WHERE LOWER(TRIM(recipient)) = :key AND type = 'expense'")
+    suspend fun updateCategoryForMerchantKey(key: String, category: String)
+
+    /** Settings → Categories: rename a category, or move its payments elsewhere. */
+    @Query("UPDATE transactions SET category = :new WHERE category = :old")
+    suspend fun renameCategory(old: String, new: String)
+
     @Query("UPDATE transactions SET note = :note WHERE id = :id")
     suspend fun updateNote(id: Int, note: String)
 

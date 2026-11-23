@@ -2,4 +2,6 @@
 <paths>
     <!-- temporary photos taken for the EMI screen reader; cleared before each new capture -->
     <cache-path name="emi_capture" path="emi_capture/" />
+    <!-- Settings > Export your data: the CSV shared through the share sheet; replaced on each export -->
+    <cache-path name="exports" path="exports/" />
 </paths>

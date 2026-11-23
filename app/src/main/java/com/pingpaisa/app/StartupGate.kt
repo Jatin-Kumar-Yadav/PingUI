@@ -9,7 +9,7 @@ internal val setupScreens = setOf(Screen.Onboarding, Screen.SignUp, Screen.Notif
  * Guide is a design reference. Notification access stays listed until Settings gets its own
  * row for it (step 52). Previews and screenshot tests still list everything.
  */
-internal val drawerHiddenScreens = setOf(Screen.Onboarding, Screen.SignUp, Screen.Lock, Screen.Style)
+internal val drawerHiddenScreens = setOf(Screen.Onboarding, Screen.SignUp, Screen.NotificationAccess, Screen.Lock, Screen.Style)
 
 /** Screens that show no ☰ menu button at all: the person isn't signed in yet. */
 internal val noMenuScreens = setOf(Screen.Onboarding, Screen.SignUp, Screen.Lock)

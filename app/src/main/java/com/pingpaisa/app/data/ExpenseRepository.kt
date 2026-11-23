@@ -1,6 +1,7 @@
 package com.pingpaisa.app.data
 
 import android.content.Context
+import androidx.room.withTransaction
 import com.pingpaisa.app.healthscore.HealthScoreHistory
 import com.pingpaisa.app.security.PasswordHasher
 import kotlinx.coroutines.flow.Flow
@@ -55,6 +56,41 @@ class ExpenseRepository(private val db: AppDatabase) {
     suspend fun recategorize(recipient: String, category: String) {
         overrides.setOverride(MerchantOverride(recipient = recipient.trim().lowercase(), category = category))
         transactions.updateCategoryForRecipient(recipient, category)
+    }
+
+    // ------------------------------------------- Settings: merchants and categories
+
+    /** Settings → Merchants → change category: remembered, and applied to every past expense to it. */
+    suspend fun recategorizeMerchant(key: String, category: String) = db.withTransaction {
+        overrides.setOverride(MerchantOverride(recipient = key, category = category))
+        transactions.updateCategoryForMerchantKey(key, category)
+    }
+
+    /** Settings → Merchants → Forget. Past payments keep their category. */
+    suspend fun forgetMerchant(key: String) = overrides.forget(key)
+
+    /**
+     * Settings → Categories → Rename (or merge into an existing category): its payments, remembered
+     * merchants and budget move to [new]. If [new] already has a budget, that budget is kept.
+     */
+    suspend fun renameCategory(old: String, new: String) = db.withTransaction {
+        transactions.renameCategory(old, new)
+        overrides.renameCategory(old, new)
+        val all = budgets.getAll()
+        all.firstOrNull { it.category == old }?.let { budget ->
+            budgets.delete(budget)
+            if (all.none { it.category == new }) budgets.upsert(Budget(new, budget.monthlyLimit))
+        }
+    }
+
+    /**
+     * Settings → Categories → Remove: its payments become "Uncategorized"; merchants remembered for it
+     * are forgotten (so they don't keep landing in "Uncategorized") and its budget is deleted.
+     */
+    suspend fun removeCategory(category: String) = db.withTransaction {
+        transactions.renameCategory(category, UNCATEGORIZED)
+        overrides.forgetCategory(category)
+        budgets.getAll().firstOrNull { it.category == category }?.let { budgets.delete(it) }
     }
 
     // ------------------------------------------------------------ transactions
@@ -163,12 +199,20 @@ class ExpenseRepository(private val db: AppDatabase) {
 
     suspend fun updateNameAndSalary(name: String, salary: Double) = profiles.updateNameAndSalary(name.trim(), salary)
 
+    /** Settings → App lock: whether the password is asked when the app opens (see StartupGate). */
+    suspend fun setAppLock(enabled: Boolean) = profiles.setAppLock(enabled)
+
+    /** Stores a new password. [hash] is already hashed (see PasswordHasher); the plain password never reaches here. */
+    suspend fun updatePassword(hash: PasswordHasher.Hashed) = profiles.updatePassword(hash.hash, hash.salt)
+
     // ----------------------------------------------------------------- helpers
 
     private fun today(): String = SimpleDateFormat("dd/MM/yy", Locale.getDefault()).format(Date())
     private fun manualRef(): String = "MANUAL-${System.currentTimeMillis()}"
 
     companion object {
+        const val UNCATEGORIZED = "Uncategorized"
+
         const val SOURCE_MANUAL = "manual"
         const val INCOME_CATEGORY = "Income"
 

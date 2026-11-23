@@ -17,6 +17,16 @@ interface MerchantOverrideDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun setOverride(override: MerchantOverride)
 
+    /** Settings → Merchants → Forget: future payments go back to automatic categorizing. */
+    @Query("DELETE FROM merchant_overrides WHERE recipient = :recipient")
+    suspend fun forget(recipient: String)
+
+    @Query("UPDATE merchant_overrides SET category = :new WHERE category = :old")
+    suspend fun renameCategory(old: String, new: String)
+
+    @Query("DELETE FROM merchant_overrides WHERE category = :category")
+    suspend fun forgetCategory(category: String)
+
     @Query("SELECT category FROM merchant_overrides WHERE recipient = :recipient")
     suspend fun getOverride(recipient: String): String?
 }
