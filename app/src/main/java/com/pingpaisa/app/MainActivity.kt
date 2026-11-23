@@ -1,6 +1,14 @@
 package com.pingpaisa.app
 
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.viewModels
+import androidx.core.content.IntentCompat
+import com.pingpaisa.app.ui.scan.ScanViewModel
+import com.pingpaisa.app.ui.scan.ScanScreen as IntegratedScanScreen
+import com.pingpaisa.app.ui.theme.PingPaisaTheme as ScannerTheme
+import com.pingpaisa.app.ui.profile.FinancialProfileScreen
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -59,19 +67,48 @@ internal enum class Screen(val title: String, val group: String) {
     Forecast("June forecast", "Intelligence"), Heatmap("Your money map", "Intelligence"),
     Scan("Scan price", "Intelligence"), Chat("Paisa AI", "Intelligence"),
     Health("Financial health", "Intelligence"), Settings("Settings", "Settings"),
-    Style("Style Guide", "Settings")
+    Style("Style Guide", "Settings"), FinancialProfile("Financial profile", "Settings")
 }
 
 class MainActivity : ComponentActivity() {
+    private val scanner: ScanViewModel by viewModels()
+    internal var shareVersion by mutableIntStateOf(0)
+        private set
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { PingPaisa() }
+        if (savedInstanceState == null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) consumeShare(intent)
+        setContent { PingPaisa(scanner = scanner, shareVersion = shareVersion) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Shares are one-shot inputs, not the activity's new launch identity.
+        // Keep the original launch intent for recreation/recents after consuming them.
+        if (intent.action !in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) setIntent(intent)
+        consumeShare(intent)
+    }
+
+    private fun consumeShare(incoming: Intent) {
+        if (incoming.action !in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) return
+        val text = incoming.getStringExtra(Intent.EXTRA_TEXT)
+        val subject = incoming.getStringExtra(Intent.EXTRA_SUBJECT)
+        val images = if (incoming.action == Intent.ACTION_SEND_MULTIPLE)
+            IntentCompat.getParcelableArrayListExtra(incoming, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+        else listOfNotNull(IntentCompat.getParcelableExtra(incoming, Intent.EXTRA_STREAM, Uri::class.java))
+        incoming.action = Intent.ACTION_MAIN
+        incoming.removeExtra(Intent.EXTRA_TEXT)
+        incoming.removeExtra(Intent.EXTRA_SUBJECT)
+        incoming.removeExtra(Intent.EXTRA_STREAM)
+        if (text.isNullOrBlank() && subject.isNullOrBlank() && images.isEmpty()) return
+        scanner.handleShared(text, subject, images)
+        shareVersion++
     }
 }
 
 @Composable
-internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding) {
+internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, scanner: ScanViewModel? = null, shareVersion: Int = 0) {
     val colors = lightColorScheme(primary = Clay.Teal, onPrimary = Color.White,
         background = Clay.Cream, surface = Clay.Cream, onSurface = Clay.Ink,
         secondaryContainer = Clay.Sage, onSecondaryContainer = Clay.Ink)
@@ -95,6 +132,7 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding) {
             history = history.dropLast(1)
         }
         fun menu() { scope.launch { drawer.open() } }
+        LaunchedEffect(shareVersion) { if (shareVersion > 0) navigate(Screen.Scan) }
         BackHandler(drawer.isOpen || current != Screen.Home) {
             if (drawer.isOpen) scope.launch { drawer.close() } else back()
         }
@@ -140,7 +178,9 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding) {
                         .togetherWith(fadeOut(tween(220, easing = SoftEase)) + slideOutHorizontally(tween(520, easing = SoftEase)) { -it / 14 * direction })
                 }, label = "Screen navigation") { screen ->
                     states.SaveableStateProvider(screen.name) {
-                        NativeScreen(screen, ::navigate, ::menu, ::back)
+                        Box(Modifier.fillMaxSize().padding(bottom = if (screen in listOf(Screen.Scan, Screen.FinancialProfile)) 58.dp else 0.dp)) {
+                            NativeScreen(screen, ::navigate, ::menu, ::back, scanner)
+                        }
                     }
                 }
                 if (tabs) NativeTabs(current, ::navigate, Modifier.align(Alignment.BottomCenter))
@@ -151,7 +191,7 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding) {
 }
 
 @Composable
-internal fun NativeScreen(screen: Screen, navigate: (Screen) -> Unit, menu: () -> Unit, back: () -> Unit) {
+internal fun NativeScreen(screen: Screen, navigate: (Screen) -> Unit, menu: () -> Unit, back: () -> Unit, scanner: ScanViewModel? = null) {
     when (screen) {
         Screen.Home -> HomeDashboard(navigate, menu)
         Screen.Transactions -> TransactionsScreen(menu, navigate)
@@ -162,11 +202,18 @@ internal fun NativeScreen(screen: Screen, navigate: (Screen) -> Unit, menu: () -
         Screen.Forecast -> ForecastScreen(menu, back)
         Screen.Heatmap -> HeatmapScreen(menu, back)
         Screen.Recurring -> RecurringScreen(menu, back)
-        Screen.Scan -> ScanScreen(menu, back)
+        Screen.Scan -> if (scanner != null) ScannerTheme {
+            IntegratedScanScreen(scanner, onOpenProfile = { navigate(Screen.FinancialProfile) }, onMenu = menu, onBack = back)
+        } else NativeText("Open the app on a device to use the camera scanner.", 12.sp, modifier = Modifier.padding(20.dp))
         Screen.Chat -> ChatScreen(menu, back, navigate)
         Screen.Health -> HealthScreen(menu, back)
         Screen.Loan -> LoanScreen(menu, back)
         Screen.Settings -> SettingsScreen(menu, navigate)
+        Screen.FinancialProfile -> if (scanner != null) {
+            val profile by scanner.profile.collectAsState()
+            FinancialProfileScreen(profile, onSave = { scanner.saveProfile(it); back() }, onBack = back,
+                onMenu = menu, persistent = scanner.profileIsPersistent)
+        } else NativeText("Open Settings on a device to edit your financial profile.", 12.sp, modifier = Modifier.padding(20.dp))
         Screen.Onboarding -> OnboardingScreen(menu) { navigate(Screen.Lock) }
         Screen.Lock -> LockScreen(menu) { navigate(Screen.Home) }
         Screen.Style -> StyleScreen(menu)
@@ -177,7 +224,7 @@ internal fun NativeScreen(screen: Screen, navigate: (Screen) -> Unit, menu: () -
 private fun NativeTabs(current: Screen, navigate: (Screen) -> Unit, modifier: Modifier) {
     val selected = when (current) {
         Screen.Home -> Screen.Home; Screen.Scan -> Screen.Scan; Screen.Chat -> Screen.Chat
-        Screen.Settings -> Screen.Settings; else -> Screen.Transactions
+        Screen.Settings, Screen.FinancialProfile -> Screen.Settings; else -> Screen.Transactions
     }
     Row(modifier.fillMaxWidth().height(58.dp).background(Clay.Cream.copy(alpha = .96f))
         .drawWithContent {

@@ -34,7 +34,12 @@ internal fun SettingsScreen(menu: () -> Unit, navigate: (Screen) -> Unit) {
                 NativeText("aanya@pingpaisa.app", 7.sp, Color(0xFF718078), modifier = Modifier.padding(vertical = 3.dp))
             }
             Box(Modifier.size(31.dp).background(Color.White.copy(alpha = .5f), CircleShape)
-                .clickable { dialog = "Your profile" }, contentAlignment = Alignment.Center) { NativeIcon(R.drawable.ic_pingpaisa_edit, 17.dp) }
+                .clickable { navigate(Screen.FinancialProfile) }, contentAlignment = Alignment.Center) { NativeIcon(R.drawable.ic_pingpaisa_edit, 17.dp) }
+        }
+        SettingsGroup("SCANNER & FINANCES", 18.dp) {
+            SettingsRow("Financial profile", "Income, savings, expenses & purchase policy", R.drawable.ic_pingpaisa_wallet, Tone.Sage) {
+                navigate(Screen.FinancialProfile)
+            }
         }
         SettingsGroup("ORGANISE", 18.dp) {
             SettingsRow("Categories","12 custom categories", R.drawable.ic_pingpaisa_bag, Tone.Peach) { dialog = "Categories" }
