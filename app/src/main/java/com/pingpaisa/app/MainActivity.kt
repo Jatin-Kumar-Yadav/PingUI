@@ -430,7 +430,15 @@ internal fun NativeScreen(
         }
         Screen.FinancialProfile -> if (scanner != null) {
             val profile by scanner.profile.collectAsState()
-            FinancialProfileScreen(profile, onSave = { scanner.saveProfile(it); back() }, onBack = back,
+            // Step 48: a profile never saved starts filled in from the app's own data (salary, recurring
+            // payments, spending). Read from the database once; the form is shown when it is ready.
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val prefill by produceState<com.pingpaisa.app.finance.FinancialProfile?>(null, vm) {
+                value = if (vm == null) com.pingpaisa.app.finance.FinancialProfile() else TrackerExpenseHistory.prefill(context.applicationContext)
+            }
+            val start = profile ?: prefill
+            if (start == null) Box(Modifier.fillMaxSize())   // reading the database, a moment
+            else FinancialProfileScreen(start, onSave = { scanner.saveProfile(it); back() }, onBack = back,
                 onMenu = menu, persistent = scanner.profileIsPersistent)
         } else NativeText("Open Settings on a device to edit your financial profile.", 12.sp, modifier = Modifier.padding(20.dp))
         Screen.Style -> StyleScreen(menu)

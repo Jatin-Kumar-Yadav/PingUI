@@ -24,7 +24,7 @@ class PingPaisaApp : Application() {
     val imageStore by lazy { ImageStore(this) }
     val productStore by lazy { ProductStore(this) }
     val profileStore by lazy { FinancialProfileStore(this) }
-    val expenseHistory: ExpenseHistoryProvider = NoExpenseHistory
+    val expenseHistory: ExpenseHistoryProvider by lazy { TrackerExpenseHistory(this) }   // real history from the tracker (step 48); was NoExpenseHistory
     private val gemini by lazy { GeminiRecognizer(BuildConfig.GEMINI_API_KEY, BuildConfig.GEMINI_MODEL, categories.taxonomyPrompt()) }
     val analyzer by lazy {
         ProductAnalyzer(ocr, categories, classifier, gemini.takeIf { it.enabled }, ProductPageFetcher(this), imageStore)
