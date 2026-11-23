@@ -1,6 +1,14 @@
 package com.pingpaisa.app
 
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.viewModels
+import androidx.core.content.IntentCompat
+import com.pingpaisa.app.ui.scan.ScanViewModel
+import com.pingpaisa.app.ui.scan.ScanScreen as IntegratedScanScreen
+import com.pingpaisa.app.ui.theme.PingPaisaTheme as ScannerTheme
+import com.pingpaisa.app.ui.profile.FinancialProfileScreen
 import androidx.activity.ComponentActivity
 import androidx.activity.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -68,19 +76,23 @@ internal enum class Screen(val title: String, val group: String) {
     Forecast("June forecast", "Intelligence"), Heatmap("Your money map", "Intelligence"),
     Scan("Scan price", "Intelligence"), Chat("Paisa AI", "Intelligence"),
     Health("Financial health", "Intelligence"), Settings("Settings", "Settings"),
-    Style("Style Guide", "Settings")
+    Style("Style Guide", "Settings"), FinancialProfile("Financial profile", "Settings")
 }
 
 class MainActivity : ComponentActivity() {
     // Survives rotation; shared by every screen.
     private val appViewModel: AppViewModel by viewModels()
+    private val scanner: ScanViewModel by viewModels()
+    internal var shareVersion by mutableIntStateOf(0)
+        private set
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Load the merchant dataset before anything can categorize (same as the old tracker).
         Categorizer.init(applicationContext)
         enableEdgeToEdge()
-        setContent { PingPaisa(vm = appViewModel) }
+        if (savedInstanceState == null && intent.flags and Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY == 0) consumeShare(intent)
+        setContent { PingPaisa(vm = appViewModel, scanner = scanner, shareVersion = shareVersion) }
     }
 
     // App lock timer: leaving the app for 2+ minutes asks for the password again.
@@ -94,6 +106,30 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         if (!isChangingConfigurations) appViewModel.onAppBackgrounded()
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Shares are one-shot inputs, not the activity's new launch identity.
+        // Keep the original launch intent for recreation/recents after consuming them.
+        if (intent.action !in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) setIntent(intent)
+        consumeShare(intent)
+    }
+
+    private fun consumeShare(incoming: Intent) {
+        if (incoming.action !in listOf(Intent.ACTION_SEND, Intent.ACTION_SEND_MULTIPLE)) return
+        val text = incoming.getStringExtra(Intent.EXTRA_TEXT)
+        val subject = incoming.getStringExtra(Intent.EXTRA_SUBJECT)
+        val images = if (incoming.action == Intent.ACTION_SEND_MULTIPLE)
+            IntentCompat.getParcelableArrayListExtra(incoming, Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+        else listOfNotNull(IntentCompat.getParcelableExtra(incoming, Intent.EXTRA_STREAM, Uri::class.java))
+        incoming.action = Intent.ACTION_MAIN
+        incoming.removeExtra(Intent.EXTRA_TEXT)
+        incoming.removeExtra(Intent.EXTRA_SUBJECT)
+        incoming.removeExtra(Intent.EXTRA_STREAM)
+        if (text.isNullOrBlank() && subject.isNullOrBlank() && images.isEmpty()) return
+        scanner.handleShared(text, subject, images)
+        shareVersion++
+    }
 }
 
 /**
@@ -101,7 +137,7 @@ class MainActivity : ComponentActivity() {
  * screenshot tests, which have no database and keep showing the design's sample data.
  */
 @Composable
-internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewModel? = null) {
+internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewModel? = null, scanner: ScanViewModel? = null, shareVersion: Int = 0) {
     val colors = lightColorScheme(primary = Clay.Teal, onPrimary = Color.White,
         background = Clay.Cream, surface = Clay.Cream, onSurface = Clay.Ink,
         secondaryContainer = Clay.Sage, onSecondaryContainer = Clay.Ink)
@@ -141,6 +177,8 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewMod
         if (shown == null) { StartupSplash(); return@CompositionLocalProvider }
         val atRoot = if (account == null) shown == Screen.Home else isRootScreen(account, unlocked, shown)
 
+        LaunchedEffect(shareVersion) { if (shareVersion > 0) navigate(Screen.Scan) }
+
         // On a root screen (Home, Onboarding, locked login) system Back leaves the app.
         BackHandler(drawer.isOpen || !atRoot) {
             if (drawer.isOpen) scope.launch { drawer.close() } else back()
@@ -174,7 +212,7 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewMod
                 }
                 Row(Modifier.padding(20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     NativeIcon(R.drawable.ic_pingpaisa_shield, 15.dp, Clay.Teal)
-                    Column { NativeText("Private by design", 9.sp, weight = FontWeight.Bold); NativeText("100% on-device", 7.sp, Clay.Muted) }
+                    Column { NativeText("Private by design", 9.sp, weight = FontWeight.Bold); NativeText("Your money data stays on your phone", 7.sp, Clay.Muted) }
                 }
             }
         }) {
@@ -192,7 +230,9 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewMod
                     states.SaveableStateProvider(screen.name) {
                         // vm == null: previews/screenshot tests keep the menu on every screen.
                         CompositionLocalProvider(LocalMenuEnabled provides (vm == null || screen !in noMenuScreens)) {
-                            NativeScreen(screen, ::navigate, ::menu, ::back, vm, ::startFresh)
+                            Box(Modifier.fillMaxSize().padding(bottom = if (screen in listOf(Screen.Scan, Screen.FinancialProfile)) 58.dp else 0.dp)) {
+                                NativeScreen(screen, ::navigate, ::menu, ::back, vm, ::startFresh, scanner)
+                            }
                         }
                     }
                 }
@@ -207,7 +247,8 @@ internal fun PingPaisa(initialScreen: Screen = Screen.Onboarding, vm: AppViewMod
 internal fun NativeScreen(
     screen: Screen, navigate: (Screen) -> Unit, menu: () -> Unit, back: () -> Unit,
     vm: AppViewModel? = null,   // null only in previews and screenshot tests
-    startFresh: (Screen) -> Unit = navigate
+    startFresh: (Screen) -> Unit = navigate,
+    scanner: ScanViewModel? = null   // the teammate's scanner; null in previews and screenshot tests
 ) {
     when (screen) {
         Screen.Home -> if (vm == null) HomeDashboard(navigate, menu) else {
@@ -316,7 +357,9 @@ internal fun NativeScreen(
                 onAdd = { name, amount, day, type -> vm.addRecurring(name, amount, day, type) },
                 onDelete = { id -> items.firstOrNull { it.id == id }?.let(vm::deleteRecurring) })
         }
-        Screen.Scan -> ScanScreen(menu, back)
+        Screen.Scan -> if (scanner != null) ScannerTheme {
+            IntegratedScanScreen(scanner, onOpenProfile = { navigate(Screen.FinancialProfile) }, onMenu = menu, onBack = back)
+        } else NativeText("Open the app on a device to use the camera scanner.", 12.sp, modifier = Modifier.padding(20.dp))
         Screen.Chat -> if (vm == null) ChatScreen(menu, back, navigate) else {
             val health by vm.health.collectAsStateWithLifecycle()
             val all by vm.transactions.collectAsStateWithLifecycle()
@@ -385,6 +428,11 @@ internal fun NativeScreen(
                 onLogin = { password, result -> if (vm == null) result(LoginResult.Success) else vm.login(password, result) }
             ) { startFresh(Screen.Home) }   // login is not kept in the back history
         }
+        Screen.FinancialProfile -> if (scanner != null) {
+            val profile by scanner.profile.collectAsState()
+            FinancialProfileScreen(profile, onSave = { scanner.saveProfile(it); back() }, onBack = back,
+                onMenu = menu, persistent = scanner.profileIsPersistent)
+        } else NativeText("Open Settings on a device to edit your financial profile.", 12.sp, modifier = Modifier.padding(20.dp))
         Screen.Style -> StyleScreen(menu)
     }
 }
@@ -399,7 +447,7 @@ private fun StartupSplash() {
 private fun NativeTabs(current: Screen, navigate: (Screen) -> Unit, modifier: Modifier) {
     val selected = when (current) {
         Screen.Home -> Screen.Home; Screen.Scan -> Screen.Scan; Screen.Chat -> Screen.Chat
-        Screen.Settings -> Screen.Settings; else -> Screen.Transactions
+        Screen.Settings, Screen.FinancialProfile -> Screen.Settings; else -> Screen.Transactions
     }
     Row(modifier.fillMaxWidth().height(58.dp).background(Clay.Cream.copy(alpha = .96f))
         .drawWithContent {
