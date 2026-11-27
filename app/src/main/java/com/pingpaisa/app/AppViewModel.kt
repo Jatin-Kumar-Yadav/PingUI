@@ -159,6 +159,8 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     /** The Paisa AI conversation. Memory only: it starts fresh every time the app starts. */
     private val _chat = MutableStateFlow<List<ChatMessage>>(emptyList())
     internal val chat: StateFlow<List<ChatMessage>> = _chat.asStateFlow()
+    private val _confirmedAiActionIds = MutableStateFlow<Set<String>>(emptySet())
+    internal val confirmedAiActionIds: StateFlow<Set<String>> = _confirmedAiActionIds.asStateFlow()
 
     internal fun addChat(question: String, reply: AiReply, time: String) {
         _chat.value = _chat.value + ChatMessage(true, question.trim(), null, time) + ChatMessage(false, "", reply, time)
@@ -168,6 +170,23 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun launch(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
+    }
+
+    /** Writes only the action the user explicitly confirmed in the PaisaAI preview. */
+    internal fun confirmAiAction(action: AiAction) {
+        if (action.id in _confirmedAiActionIds.value) return
+        _confirmedAiActionIds.value = _confirmedAiActionIds.value + action.id
+        launch {
+            when (action.type) {
+                AiActionType.EXPENSE -> repo.addManualExpense(action.amount, action.description, action.category, action.date)
+                AiActionType.INCOME -> repo.addManualIncome(action.amount, action.description, action.date)
+                AiActionType.SET_BUDGET -> repo.setBudget(action.description, action.amount)
+                AiActionType.CREATE_GOAL -> repo.addSavingsGoal(action.description, action.amount)
+                AiActionType.UPDATE_GOAL -> savingsGoals.value.firstOrNull { it.id == action.targetId }?.let { goal ->
+                    repo.updateSavingsGoal(goal.copy(targetAmount = action.amount))
+                }
+            }
+        }
     }
 
     fun addExpense(amount: Double, paidTo: String, category: String? = null) =

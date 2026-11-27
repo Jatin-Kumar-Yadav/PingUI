@@ -22,24 +22,44 @@ data class AiProduct(val name: String?, val brand: String?, val category: String
 class GeminiRecognizer(private val apiKey: String, private val model: String, private val taxonomy: String) {
     val enabled: Boolean get() = apiKey.isNotBlank()
 
-    suspend fun identify(bitmap: Bitmap): AiProduct? {
+    suspend fun identify(bitmap: Bitmap, ocrText: String? = null): AiProduct? {
         if (!enabled) return null
         return withContext(Dispatchers.IO) {
-            try { request(bitmap) } catch (_: Exception) { null }
+            try { request(bitmap, ocrText) } catch (_: Exception) { null }
         }
     }
 
-    private fun request(bitmap: Bitmap): AiProduct? {
+    private fun request(bitmap: Bitmap, ocrText: String?): AiProduct? {
         val longest = max(bitmap.width, bitmap.height)
         val small = if (longest > 768) {
             val s = 768f / longest
             Bitmap.createScaledBitmap(bitmap, (bitmap.width * s).toInt(), (bitmap.height * s).toInt(), true)
         } else bitmap
         val jpeg = ByteArrayOutputStream().also { small.compress(Bitmap.CompressFormat.JPEG, 80, it) }.toByteArray()
-        val prompt = "You label shopping photos for an expense app. Identify the main product in the image. " +
-            "Reply with JSON only: {\"name\": string or null, \"brand\": string or null, \"category\": string, \"subcategory\": string}. " +
-            "Use null for name/brand if you cannot tell from the image - never guess a model number. " +
-            "category and subcategory MUST be copied exactly from this list (use Miscellaneous / Uncategorized if nothing fits):\n$taxonomy"
+        val ocr = ocrText.orEmpty().take(9000)
+        val prompt = """You identify a product from a shopping screenshot for a personal expense app.
+Inspect the image and OCR text together. The screenshot may show a product detail page, a listing card,
+several recommendations, or a product beside a large product photo.
+
+Choose the one main product the screenshot is centered on. Prefer its complete visible product title over
+brand headers, breadcrumbs, navigation labels, advertisements, feature text inside product images, or suggested
+products. Use OCR text to recover spelling and model details, but include only words that clearly belong to the
+main product. Do not invent specifications, brand, or identity. If the product cannot be identified, return null
+for name and brand.
+
+Do not read or return a price. Prices, MRPs, discounts, EMI values, shipping fees, ratings, and promotional
+amounts are handled separately by the on-device scanner and must not affect the product name.
+
+Return JSON only with exactly these fields:
+{"name": string or null, "brand": string or null, "category": string, "subcategory": string}
+Category and subcategory MUST exactly match one pair in the taxonomy below. If no pair fits, use
+"Miscellaneous" and "Uncategorized".
+
+OCR text (may contain unrelated page text):
+${ocr.ifBlank { "(none available)" }}
+
+Taxonomy:
+$taxonomy""".trimIndent()
         val body = JSONObject()
             .put("contents", JSONArray().put(JSONObject().put("parts", JSONArray()
                 .put(JSONObject().put("text", prompt))

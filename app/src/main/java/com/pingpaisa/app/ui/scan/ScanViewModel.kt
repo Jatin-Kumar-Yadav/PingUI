@@ -67,6 +67,8 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
     private val analyzer = ctx.analyzer
     private val classifier = ctx.classifier
     val categories = ctx.categories
+    val learnedConfirmations = MutableStateFlow(ctx.priceLearningStore.confirmedCount())
+    val learnedCorrections = MutableStateFlow(ctx.priceLearningStore.correctionCount())
 
     private val _products = MutableStateFlow(ctx.productStore.load())
     val products: StateFlow<List<Product>> = _products
@@ -211,6 +213,7 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun updateProduct(id: String, name: String, price: Double?, category: String, subcategory: String, priority: Priority, variant: String? = null) {
+        val original = _products.value.firstOrNull { it.id == id }
         update(id) { p ->
             val edited = p.edited.toMutableSet()
             val priceChanged = price != p.price
@@ -232,6 +235,19 @@ class ScanViewModel(app: Application) : AndroidViewModel(app) {
                 state = if (price == null) ItemState.NEEDS_PRICE else ItemState.READY,
                 message = if (price != null) null else p.message
             )
+        }
+        // A save is the user's explicit confirmation. Re-read the retained local image and learn
+        // only if OCR can find the confirmed amount in that image.
+        if (original?.priceSource == PriceSource.OCR && original.price != null && price != null && original.imagePath != null && original.contentHash != null) {
+            viewModelScope.launch(Dispatchers.IO) {
+                runCatching {
+                    val bitmap = ImageStore.decodeForOcr(original.imagePath) ?: return@runCatching
+                    val lines = ctx.ocr.readText(bitmap)
+                    ctx.priceLearningStore.record(lines, original.price, price, original.contentHash)
+                    learnedConfirmations.value = ctx.priceLearningStore.confirmedCount()
+                    learnedCorrections.value = ctx.priceLearningStore.correctionCount()
+                }
+            }
         }
     }
 

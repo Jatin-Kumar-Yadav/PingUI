@@ -1,6 +1,7 @@
 package com.pingpaisa.app.recognition
 
 import java.math.BigDecimal
+import com.pingpaisa.app.data.PriceLearningStore
 
 /**
  * What a product page / listing screenshot says about the product the user is looking at.
@@ -40,7 +41,7 @@ object ListingReader {
 
     private class Tok(
         val value: BigDecimal, val raw: String, var kind: PriceKind, val marker: Marker,
-        val line: OcrLine, val box: Box, val conf: Float?
+        val line: OcrLine, val box: Box, val conf: Float?, val features: Set<String>
     ) { var score = 0.0; var titled = false }
 
     private class Block(val text: String, val box: Box, val score: Double, val lineH: Float)
@@ -53,6 +54,7 @@ object ListingReader {
     private val MARK_CHARS = "₹₨?TtFfZzEe+±#￥¥$€ "
     // "From 29,499*", "Starting at 8,999", "Now 14,999": a price lead-in is evidence even when OCR dropped the rupee sign
     private val LEAD_IN = Regex("""(?i)(?<![A-Za-z])(?:from|starting\s*(?:at|from)?|just|only|now|at|offer\s*price|price)\s*[:*]?\s*$""")
+    private val PRICE_CONTEXT = Regex("""(?i)\b(?:buy\s*now|buy\s*at|add\s*to\s*(?:bag|cart)|inclusive\s*of\s*all\s*taxes|current\s*price|selling\s*price)\b""")
     // "Add. 1,250 Off", "Flat 2,000 off": a discount amount, not a price (unless the line is a "43% 26,499" card line)
     private val OFF_LINE = Regex("""(?i)\boff\b|\dff\b|^\W*add\b""")
     private val AFTER_PCT = Regex("""(?i)%\s*(?:off)?\s*$""")
@@ -60,17 +62,28 @@ object ListingReader {
     private val LINE_EXCLUDE = Regex(
         """(?i)\bemi\b|per\s*month|exchange|bank\s*offers?|coupon|you\s*save|protect|promise|delivery|shipping|ratings?|reviews?|warranty|[★☆]"""
     )
+    private val AMOUNT_EXCLUDE_BEFORE = Regex(
+        """(?i)\b(?:emi|exchange|cashback|coupon|save|savings?|discount|delivery|shipping|fee|fees|charges?|reward|points?)\s*(?:of|at|:|-)?\s*$"""
+    )
+    private val AMOUNT_EXCLUDE_AFTER = Regex(
+        """(?i)^\s*(?:%|percent\b|off\b|cashback\b|discount\b|emi\b|/\s*(?:m|mo|month)\b|per\s*month\b|delivery\b|shipping\b|fee\b)"""
+    )
     private val CARD_LABEL = Regex("""(?i)^\s*(\d{1,4})\s*(?:GB|TB)\s*\+\s*(\d{1,3})\s*(?:GB|TB)\s*$""")
     private val VARIANT_HEADER = Regex("""(?i)variant\W*(\d{1,4})\s*(?:GB|TB)\s*\+\s*(\d{1,3})\s*(?:GB|TB)""")
     private val COLOR_HEADER = Regex("""(?i)selected\s*colou?r\W*(.+)$""")
     private val TITLE_NOISE = Regex(
-        """(?i)\b(?:login|sign\s*in|visit\s*(?:the\s*)?brand|selected\s*colou?r|variant|top\s*discount|buy|add\s*to|sponsored|compare|cart|wishlist|offers?|more|search|ratings?|reviews?|sale|free|delivery|in\s*stock|out\s*of\s*stock|left|emi|protect|promise|from)\b|^\s*(?:ad|home)\b|₹|%|[★☆]"""
+        """(?i)\b(?:login|sign\s*in|visit\s*(?:the\s*)?brand|selected\s*colou?r|variant|top\s*discount|buy|add\s*to|sponsored|compare|cart|wishlist|offers?|more|search|ratings?|reviews?|sale|free|delivery|in\s*stock|out\s*of\s*stock|left|emi|protect|promise|from|home|products?|categories|men|women|kids|beauty|studio|profile|bag)\b|₹|%|[★☆]"""
     )
     private val AD_BADGE = Regex("""(?i)^\W*(?:ad|ads)\W*$""")
     private val RAM_KEY = Regex("""(?i)(\d{1,3})\s*GB\s*RAM""")
     private val GB_ANY = Regex("""(?i)(\d{1,4})\s*GB""")
 
-    fun read(lines: List<OcrLine>, focus: Box? = null, isStruck: ((Box) -> Boolean)? = null): ListingResult? {
+    fun read(
+        lines: List<OcrLine>,
+        focus: Box? = null,
+        isStruck: ((Box) -> Boolean)? = null,
+        learnedWeights: Map<String, Double> = emptyMap()
+    ): ListingResult? {
         val boxed = lines.filter { it.box != null && it.text.isNotBlank() }
         if (boxed.size < 2) return null
 
@@ -100,6 +113,8 @@ object ListingReader {
             if (t.kind == PriceKind.MRP) s -= 4.0
             s += 3.0 * (t.line.box!!.height / maxH)
             if (focus != null) s += if (focus.containsCenterOf(t.line.box)) 1.0 else -0.5
+            val learned = t.features.mapNotNull(learnedWeights::get).average()
+            if (learned.isFinite()) s += learned * 2.5
             if (inAd(t.line.box)) s -= 8.0
             if (headerTop != null && t.line.box.bottom < headerTop - 4f && t.line.box.height < 0.75f * maxH) s -= 8.0
             // another variant's card?
@@ -114,8 +129,35 @@ object ListingReader {
             t.score = s
         }
 
-        // one candidate per value: keep the best-scoring occurrence
-        val ranked = pool.groupBy { it.value.stripTrailingZeros() }.map { (_, g) -> g.maxByOrNull { it.score }!! }
+        // Repeated displays of the same current price (for example, beside the title and again
+        // in a sticky purchase bar) corroborate one another. Combine a small amount of evidence
+        // from the repeat, but do not let a page full of duplicated OCR lines dominate ranking.
+        val ranked = pool.groupBy { it.value.stripTrailingZeros() }.map { (_, g) ->
+            val primary = g.maxByOrNull { it.score }!!
+            val corroboration = g.asSequence().filter { it !== primary }
+                .sortedByDescending { it.score }
+                // OCR may emit duplicate/overlapping lines for the same printed amount.
+                // Only separate visual occurrences count as corroboration.
+                .filter { occurrence ->
+                    val threshold = maxOf(30f, 1.5f * maxOf(occurrence.box.height, primary.box.height))
+                    kotlin.math.abs(occurrence.box.centerY - primary.box.centerY) > threshold ||
+                        kotlin.math.abs(occurrence.box.centerX - primary.box.centerX) >
+                        0.8f * maxOf(occurrence.box.width, primary.box.width)
+                }
+                .map { occurrence ->
+                    val distance = kotlin.math.abs(occurrence.box.centerY - primary.box.centerY)
+                    val samePanel = kotlin.math.abs(occurrence.box.left - primary.box.left) <= 0.35f *
+                        maxOf(occurrence.box.width, primary.box.width).coerceAtLeast(1f)
+                    when {
+                        samePanel && distance < 500f -> 0.45
+                        distance < 900f -> 0.25
+                        else -> 0.1
+                    }
+                }
+                .take(2)
+                .sum()
+            primary.apply { score += corroboration }
+        }
             .sortedByDescending { it.score }
         val best = ranked.first()
         val second = ranked.getOrNull(1)
@@ -148,8 +190,6 @@ object ListingReader {
 
     private fun scan(line: OcrLine, all: List<OcrLine>, isStruck: ((Box) -> Boolean)?): List<Tok> {
         val text = THOUSAND_DOT.replace(line.text, ",")
-        if (LINE_EXCLUDE.containsMatchIn(text)) return emptyList()
-        if (OFF_LINE.containsMatchIn(text) && !text.contains('%')) return emptyList()
         val box = line.box!!
         val ms = PriceExtractor.AMOUNT.findAll(text).toList()
         val out = ArrayList<Tok>()
@@ -165,12 +205,25 @@ object ListingReader {
             val value = BigDecimal(intPart.replace(",", "") + if (dec.isNotEmpty()) ".$dec" else "")
             if (value.signum() <= 0 || value > MAX) return@forEachIndexed
             if (PriceExtractor.NOT_PRICE_AFTER.containsMatchIn(after)) return@forEachIndexed
+            val localBefore = before.takeLast(48)
+            val localAfter = after.take(32)
+            val amountContext = PriceExtractor.RUPEE_END.replace(localBefore, "")
+            // A selling price and unrelated EMI/shipping copy can share one OCR line.
+            // Apply exclusions to each amount instead of rejecting the whole line.
+            if (AMOUNT_EXCLUDE_BEFORE.containsMatchIn(amountContext) || AMOUNT_EXCLUDE_AFTER.containsMatchIn(localAfter)) return@forEachIndexed
+            val hasPriceMarker = PriceExtractor.RUPEE_END.containsMatchIn(before) ||
+                LOOK_SYMBOL.containsMatchIn(before) || (intPart.contains(',') && LOOK_LETTER.containsMatchIn(before)) ||
+                LEAD_IN.containsMatchIn(before)
+            if (LINE_EXCLUDE.containsMatchIn(text) && !hasPriceMarker) return@forEachIndexed
+            if (OFF_LINE.containsMatchIn(text) && !text.contains('%') && !hasPriceMarker) return@forEachIndexed
 
             val real = PriceExtractor.RUPEE_END.containsMatchIn(before)
             val digits = intPart.count { it.isDigit() }
             val lead = !real && digits >= 3 && LEAD_IN.containsMatchIn(before)
             val look = !real && digits >= 3 && (LOOK_SYMBOL.containsMatchIn(before) || (intPart.contains(',') && LOOK_LETTER.containsMatchIn(before)))
-            val ctx = (if (real) PriceExtractor.RUPEE_END.replace(gap, "") else gap).takeLast(32)
+            // Use only the words since the preceding amount. Otherwise an earlier MRP label can
+            // incorrectly contaminate the current selling-price token on the same OCR line.
+            val ctx = (if (real) PriceExtractor.RUPEE_END.replace(gap, "") else gap).takeLast(64)
             if (PriceExtractor.NOT_PRICE_BEFORE.containsMatchIn(LEAD_IN.replace(ctx.trimEnd(), "").trimEnd())) return@forEachIndexed
 
             val afterPct = AFTER_PCT.containsMatchIn(before)
@@ -181,6 +234,7 @@ object ListingReader {
             val marker = when {
                 real -> Marker.REAL
                 look || lead -> Marker.LOOKALIKE
+                PRICE_CONTEXT.containsMatchIn(before.takeLast(64)) && digits >= 3 -> Marker.STRUCT
                 afterPct || pctOffAfter -> Marker.STRUCT
                 followsAmount && prev!!.value > value -> Marker.STRUCT
                 loneBareAmount && isCardPriceBelowDiscount(line, all) -> Marker.STRUCT
@@ -196,15 +250,20 @@ object ListingReader {
                 PriceExtractor.SELL_CUE.containsMatchIn(ctx) || lead -> PriceKind.SELLING
                 else -> PriceKind.UNKNOWN
             }
+            if (kind == PriceKind.UNKNOWN && PRICE_CONTEXT.containsMatchIn(ctx)) {
+                kind = PriceKind.SELLING
+            }
             // approximate where this amount sits inside the line (OCR gives one box per line)
             val len = text.length.coerceAtLeast(1)
+            val left = box.left + box.width * m.range.first / len
+            val right = box.left + box.width * (m.range.last + 1) / len
             val tokBox = Box(
-                box.left + box.width * m.range.first / len, box.top,
-                box.left + box.width * (m.range.last + 1) / len, box.bottom
+                left, box.top, maxOf(left + box.height * 0.35f, right), box.bottom
             )
             if (kind == PriceKind.UNKNOWN && isStruck?.invoke(tokBox) == true) kind = PriceKind.MRP
             val shown = text.substring((m.range.first - 1).coerceAtLeast(0), m.range.last + 1).trim()
-            val tok = Tok(value, shown, kind, marker, line, tokBox, line.confidence)
+            val learnedText = ctx.takeLast(48) + " " + after.take(48)
+            val tok = Tok(value, shown, kind, marker, line, tokBox, line.confidence, PriceLearningStore.features(learnedText))
             out += tok
             prev = tok
         }
@@ -227,7 +286,7 @@ object ListingReader {
         val s = t.trim()
         val letters = s.count { it.isLetter() }
         val digits = s.count { it.isDigit() }
-        return letters >= 3 && s.length <= 140 && digits <= s.length * 0.35 && !TITLE_NOISE.containsMatchIn(s) &&
+        return letters >= 3 && s.length <= 180 && digits <= s.length * 0.45 && !TITLE_NOISE.containsMatchIn(s) &&
             s.count { it == '/' } < 2
     }
 
@@ -268,12 +327,16 @@ object ListingReader {
 
     private fun titleScore(t: String): Double {
         var s = 0.0
+        val words = t.trim().split(Regex("\\s+"))
         if (t.contains('(') && t.contains(')')) s += 2.5
         if (GB_ANY.containsMatchIn(t)) s += 1.5
         if (Regex("(?i)\\bRAM\\b").containsMatchIn(t)) s += 0.5
         if (t.first().isUpperCase()) s += 0.5
-        if (t.split(' ').size >= 3) s += 0.5
+        if (words.size >= 3) s += 0.5
+        if (words.size in 2..10) s += 0.4
         if (t.length >= 20) s += 0.5
+        if (t.any { it.isDigit() } && words.size >= 3) s += 0.4
+        if (t.contains(Regex("(?i)\\b(?:gen|pro|max|plus|ultra|wireless|bluetooth|smartwatch|laptop|phone|earbuds|speaker|shoe|shirt|trolley)\\b"))) s += 0.5
         if (t.first().isDigit() || t.contains(" | ") || t.contains(" / ")) s -= 3.0
         if (t.none { it.isUpperCase() }) s -= 1.0
         return s
@@ -284,13 +347,15 @@ object ListingReader {
         val tb = t.box
         val bonus = 0.4 * t.score
         val below = p.top - tb.bottom
-        if (below >= -8f && below <= 450f && kotlin.math.abs(p.left - tb.left) <= kotlin.math.max(80f, 3f * p.height)) {
-            return bonus + 2.0 - below / 200.0
+        if (below >= -8f && below <= 700f && kotlin.math.abs(p.left - tb.left) <= kotlin.math.max(120f, 5f * p.height)) {
+            // Price lines commonly follow a title plus rating, variant and seller metadata.
+            // Keep the spatial relationship, with gradual decay so a nearer unrelated card wins less often.
+            return bonus + 2.0 - below / 320.0
         }
         val horiz = p.left - tb.right
         val v = p.top - tb.top
-        if (horiz >= -8f && horiz <= 900f && v >= -90f && v <= 160f) {
-            return bonus + 1.5 - horiz / 500.0 - kotlin.math.abs(v) / 200.0
+        if (horiz >= -8f && horiz <= 1100f && v >= -120f && v <= 240f) {
+            return bonus + 1.5 - horiz / 650.0 - kotlin.math.abs(v) / 280.0
         }
         return null
     }

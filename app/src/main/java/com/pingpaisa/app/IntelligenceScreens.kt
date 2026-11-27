@@ -125,7 +125,9 @@ internal fun ChatScreen(menu: () -> Unit, back: () -> Unit, navigate: (Screen) -
                     chat.messages.forEach { m ->
                         Spacer(Modifier.height(if (m.user) 12.dp else 14.dp))
                         if (m.user) ChatBubble(m.text, user = true, time = m.time)
-                        else m.reply?.let { ReplyBubble(it, m.time, navigate) }
+                        else m.reply?.let { reply ->
+                            ReplyBubble(reply, m.time, navigate, chat.confirmedActionIds, chat.onConfirmAction, chat.onOpenTransaction)
+                        }
                     }
                 } else {
                 ChatBubble("Hi Aanya! I’ve looked at your June spending. What would you like to know?", time = "9:41 AM")
@@ -200,7 +202,14 @@ private fun ColumnScope.ChatBubble(text: String, user: Boolean = false, rich: Bo
 
 /** A Paisa AI answer in the design's bubble: bold title, text, an optional figure with a verdict chip, an optional link. */
 @Composable
-private fun ColumnScope.ReplyBubble(reply: AiReply, time: String, navigate: (Screen) -> Unit) {
+private fun ColumnScope.ReplyBubble(
+    reply: AiReply,
+    time: String,
+    navigate: (Screen) -> Unit,
+    confirmedActionIds: Set<String>,
+    onConfirmAction: (AiAction) -> Unit,
+    onOpenTransaction: (Int) -> Unit
+) {
     Box(Modifier.fillMaxWidth(.84f).align(Alignment.Start).riseIn(150, 10f)) {
         Row(Modifier.fillMaxWidth().claySurface(
             RoundedCornerShape(topStart = 19.dp, topEnd = 19.dp, bottomStart = 7.dp, bottomEnd = 19.dp), Color(0xFFF9F6FB))
@@ -224,6 +233,23 @@ private fun ColumnScope.ReplyBubble(reply: AiReply, time: String, navigate: (Scr
                             NativeText(label, 7.sp, ink, modifier = Modifier.background(fill, CircleShape).padding(horizontal = 7.dp, vertical = 4.dp))
                         }
                     }
+                }
+                reply.action?.let { action ->
+                    val confirmed = action.id in confirmedActionIds
+                    NativeText(
+                        if (confirmed) "Saved to transactions ✓" else "Confirm and save",
+                        8.sp,
+                        if (confirmed) Color(0xFF668572) else Color.White,
+                        FontWeight.ExtraBold,
+                        Modifier.padding(top = 10.dp).clip(CircleShape)
+                            .background(if (confirmed) Color(0xFFDCE9D8) else Color(0xFF789F91))
+                            .clickable(enabled = !confirmed) { onConfirmAction(action) }
+                            .padding(horizontal = 12.dp, vertical = 7.dp)
+                    )
+                }
+                reply.transactionId?.let { id ->
+                    NativeText("Open transaction →", 8.sp, Color(0xFF766B95), FontWeight.ExtraBold,
+                        Modifier.padding(top = 9.dp).clip(CircleShape).clickable { onOpenTransaction(id) }.padding(vertical = 3.dp))
                 }
                 reply.link?.let { link ->
                     NativeText("${link.label} →", 8.sp, Color(0xFF766B95), FontWeight.ExtraBold,

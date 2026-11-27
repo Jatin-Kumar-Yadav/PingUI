@@ -109,13 +109,13 @@ class ExpenseRepository(private val db: AppDatabase) {
      * Cash or any payment the user types in (Add an expense screen). If
      * [category] is null it is auto-categorized, as in the old ManualEntryDialog.
      */
-    suspend fun addManualExpense(amount: Double, paidTo: String, category: String? = null) {
+    suspend fun addManualExpense(amount: Double, paidTo: String, category: String? = null, date: String? = null) {
         val result = if (category != null) CategoryResult(category, "Miscellaneous") else categorize(paidTo)
         transactions.insert(
             Transaction(
                 amount = amount,
                 recipient = paidTo.trim(),
-                date = today(),
+                date = date ?: today(),
                 refNumber = manualRef(),
                 rawText = "Manual entry",
                 source = SOURCE_MANUAL,
@@ -127,12 +127,12 @@ class ExpenseRepository(private val db: AppDatabase) {
     }
 
     /** Extra money coming in (bonus, refund, freelance...). The monthly salary lives in UserProfile. */
-    suspend fun addManualIncome(amount: Double, from: String) {
+    suspend fun addManualIncome(amount: Double, from: String, date: String? = null) {
         transactions.insert(
             Transaction(
                 amount = amount,
                 recipient = from.trim(),
-                date = today(),
+                date = date ?: today(),
                 refNumber = manualRef(),
                 rawText = "Manual entry",
                 source = SOURCE_MANUAL,

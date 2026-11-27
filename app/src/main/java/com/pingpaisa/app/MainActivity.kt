@@ -368,10 +368,18 @@ internal fun NativeScreen(
             val goals by vm.savingsGoals.collectAsStateWithLifecycle()
             val account by vm.account.collectAsStateWithLifecycle()
             val messages by vm.chat.collectAsStateWithLifecycle()
+            val confirmedActionIds by vm.confirmedAiActionIds.collectAsStateWithLifecycle()
+            val scannedProducts by (scanner?.products ?: kotlinx.coroutines.flow.MutableStateFlow(emptyList<com.pingpaisa.app.data.Product>())).collectAsStateWithLifecycle()
+            val scannerSelectedId by (scanner?.selectedId ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
+            val scannerAssessment by (scanner?.assessment ?: kotlinx.coroutines.flow.MutableStateFlow(null)).collectAsStateWithLifecycle()
+            val selectedScan = scannedProducts.firstOrNull { it.id == scannerSelectedId }
+            val localContext = androidx.compose.ui.platform.LocalContext.current
+            val loanQuotes = remember(localContext) { com.pingpaisa.app.healthscore.QuoteStore.load(localContext) }
             val today = LocalDate.now()
             val monthName = today.month.getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())
             val name = (account as? AccountState.Ready)?.profile?.name.orEmpty()
-            val context = remember(health, all, items, budgets, goals, name) {
+            val monthlySalary = (account as? AccountState.Ready)?.profile?.monthlySalary ?: 0.0
+            val context = remember(health, all, items, budgets, goals, name, selectedScan, scannerAssessment) {
                 health?.let { h ->
                     AiContext(name, today, h.monthlyIncome, h.raw.expense,
                         ForecastUi.from(all, items, h.raw.expense, h.monthlyIncome, budgets, today).projectedAmount,
@@ -379,12 +387,24 @@ internal fun NativeScreen(
                             com.pingpaisa.app.healthscore.ScoreCalculator.RiskLevel.LOW -> "low risk"
                             com.pingpaisa.app.healthscore.ScoreCalculator.RiskLevel.MEDIUM -> "medium risk"
                             com.pingpaisa.app.healthscore.ScoreCalculator.RiskLevel.HIGH -> "high risk"
-                        }, h.insight.text, all, budgets, goals, items)
+                        }, h.insight.text, all, budgets, goals, items, h.raw, loanQuotes, monthlySalary,
+                        selectedScan?.price?.takeIf { !selectedScan.needsReview }, selectedScan?.name,
+                        selectedScan?.let { scannerAssessment?.line(it.id)?.decision?.name?.lowercase()?.replace('_', ' ') },
+                        selectedScan?.let { scannerAssessment?.line(it.id)?.reason },
+                        selectedScan?.let { item -> scannerAssessment?.line(item.id)?.let { line ->
+                            AiMetric("Scanner price", com.pingpaisa.app.healthscore.Money.inr(item.price ?: 0.0))
+                        } })
                 }
             }
-            ChatScreen(menu, back, navigate, ChatState(PaisaAi.greeting(name, monthName), messages, PaisaAi.suggestions(monthName)) { q ->
+            ChatScreen(menu, back, navigate, ChatState(
+                PaisaAi.greeting(name, monthName), messages, PaisaAi.suggestions(monthName),
+                confirmedActionIds = confirmedActionIds,
+                onConfirmAction = vm::confirmAiAction,
+                onOpenTransaction = { id -> vm.openTransaction(id); navigate(Screen.Detail) }
+            ) { q ->
                 val time = java.time.LocalTime.now().format(java.time.format.DateTimeFormatter.ofPattern("h:mm a", java.util.Locale.getDefault()))
-                val reply = context?.let { PaisaAi.answer(q, it) } ?: AiReply("One moment.", "I’m still loading your numbers. Ask again in a second.")
+                val previousQuestion = messages.lastOrNull { it.user }?.text
+                val reply = context?.let { PaisaAi.answer(q, it, previousQuestion) } ?: AiReply("One moment.", "I’m still loading your numbers. Ask again in a second.")
                 vm.addChat(q, reply, time)
             })
         }

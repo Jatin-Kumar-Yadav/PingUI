@@ -120,6 +120,8 @@ fun ScanScreen(vm: ScanViewModel, onOpenProfile: () -> Unit, onMenu: () -> Unit 
     val emiNotes by vm.emiNotes.collectAsStateWithLifecycle()
     val cameraOn by vm.cameraOn.collectAsStateWithLifecycle()
     val flow by vm.flow.collectAsStateWithLifecycle()
+    val learningConfirmed by vm.learnedConfirmations.collectAsStateWithLifecycle()
+    val learningCorrections by vm.learnedCorrections.collectAsStateWithLifecycle()
 
     // ---- camera state: the user's switch + permission + hardware decide ONE phase; nothing else starts the camera
     fun hasPermission() = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
@@ -332,6 +334,14 @@ fun ScanScreen(vm: ScanViewModel, onOpenProfile: () -> Unit, onMenu: () -> Unit 
                 Box(Modifier.align(Alignment.CenterEnd)) {
                     CircleButton(null, "Help", label = "?") { helpOpen = true }
                 }
+            }
+            if (learningConfirmed > 0) {
+                Text(
+                    "Learning from $learningConfirmed confirmed price${if (learningConfirmed == 1) "" else "s"}" +
+                        if (learningCorrections > 0) " · $learningCorrections corrected" else "",
+                    color = Color.White.copy(alpha = .62f), fontSize = 10.sp, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                )
             }
 
             // Scan frame

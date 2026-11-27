@@ -5,6 +5,7 @@ import com.pingpaisa.app.catalog.CategoryRepository
 import com.pingpaisa.app.catalog.ProductClassifier
 import com.pingpaisa.app.data.ImageStore
 import com.pingpaisa.app.data.ProductStore
+import com.pingpaisa.app.data.PriceLearningStore
 import com.pingpaisa.app.finance.ExpenseHistoryProvider
 import com.pingpaisa.app.finance.FinancialProfileStore
 import com.pingpaisa.app.finance.NoExpenseHistory
@@ -23,10 +24,11 @@ class PingPaisaApp : Application() {
     val ocr by lazy { OcrEngine() }
     val imageStore by lazy { ImageStore(this) }
     val productStore by lazy { ProductStore(this) }
+    val priceLearningStore by lazy { PriceLearningStore(this) }
     val profileStore by lazy { FinancialProfileStore(this) }
     val expenseHistory: ExpenseHistoryProvider by lazy { TrackerExpenseHistory(this) }   // real history from the tracker (step 48); was NoExpenseHistory
     private val gemini by lazy { GeminiRecognizer(BuildConfig.GEMINI_API_KEY, BuildConfig.GEMINI_MODEL, categories.taxonomyPrompt()) }
     val analyzer by lazy {
-        ProductAnalyzer(ocr, categories, classifier, gemini.takeIf { it.enabled }, ProductPageFetcher(this), imageStore)
+        ProductAnalyzer(ocr, categories, classifier, gemini.takeIf { it.enabled }, ProductPageFetcher(this), imageStore, priceLearningStore)
     }
 }

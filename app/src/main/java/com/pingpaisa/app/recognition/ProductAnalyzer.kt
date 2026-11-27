@@ -7,6 +7,7 @@ import com.pingpaisa.app.catalog.ImageLabelHit
 import com.pingpaisa.app.catalog.MatchSource
 import com.pingpaisa.app.catalog.ProductClassifier
 import com.pingpaisa.app.data.ImageStore
+import com.pingpaisa.app.data.PriceLearningStore
 import com.pingpaisa.app.data.PriceSource
 import com.pingpaisa.app.link.FetchResult
 import com.pingpaisa.app.link.ProductPageFetcher
@@ -45,7 +46,8 @@ class ProductAnalyzer(
     private val classifier: ProductClassifier,
     private val gemini: GeminiRecognizer?,
     private val fetcher: ProductPageFetcher,
-    private val images: ImageStore
+    private val images: ImageStore,
+    private val priceLearning: PriceLearningStore? = null
 ) {
     suspend fun analyzeImage(path: String, focus: FocusSpec?): AnalysisResult = withContext(Dispatchers.Default) {
         val bmp = ImageStore.decodeForOcr(path)
@@ -56,7 +58,7 @@ class ProductAnalyzer(
         }
         val focusBox = focus?.let { ViewportMapper.focusInImage(it, bmp.width, bmp.height) }
         // 1) layout-aware reading (title + selected-variant price + exclusion of ads/EMI/MRP) ...
-        val listing = ListingReader.read(lines, focusBox) { box -> isStruck(bmp, box) }
+        val listing = ListingReader.read(lines, focusBox, { box -> isStruck(bmp, box) }, priceLearning?.weights().orEmpty())
         // 2) ... else the simple rupee-marker extractor (single price tags, plain text)
         val simple = if (listing == null) PriceExtractor.extract(lines, focusBox) else null
         val labels = try { ocr.labels(bmp) } catch (e: Exception) { emptyList() }
@@ -70,7 +72,7 @@ class ProductAnalyzer(
         var brand = findBrand(title ?: allText)
 
         if (gemini?.enabled == true && (name == null || cls.confidence < 0.8f)) {
-            gemini.identify(bmp)?.let { ai ->
+            gemini.identify(bmp, allText)?.let { ai ->
                 if (ai.name != null) { name = ai.name; guess = false }
                 brand = ai.brand ?: brand
                 classifier.fromSuggestion(ai.category, ai.subcategory, "Suggested by AI from the photo, matched to your dataset")

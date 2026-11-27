@@ -30,6 +30,8 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GEMINI_API_KEY", scannerString("GEMINI_API_KEY"))
         buildConfigField("String", "GEMINI_MODEL", scannerString("GEMINI_MODEL", "gemini-3.8-flash"))
+        // Set false to use the compact offline PaisaAI rules while enhanced tools are rolled back.
+        buildConfigField("boolean", "PAISA_AI_ENHANCED", "true")
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
